@@ -1,58 +1,144 @@
-AI Traffic Moderator 🚦
-A web-based intelligent traffic management system that uses YOLO (via Ultralytics) for high-speed object detection and Flask to provide a real-time monitoring dashboard.
+# AI Traffic Controller 🚦
 
-📌 Overview
-This project modernizes traffic control by using Computer Vision to quantify road congestion. Instead of relying on static timers, the system "sees" the number of vehicles in each lane and can dynamically adjust signal timings to optimize traffic flow and reduce idling time.
+An AI-powered traffic signal control system that uses **computer vision and deep learning (YOLOv8)** to detect vehicles in real time and dynamically manage traffic signals. Built with **Flask, OpenCV, and Ultralytics YOLO**, this project demonstrates how AI can improve traffic flow and reduce congestion.
 
-✨ Key Features
-High-Accuracy Detection: Leverages Ultralytics YOLO (v8/v5) for real-time identification of cars, trucks, ambulances, and pedestrians.
+---
 
-Web Dashboard: A responsive Flask web interface that streams processed video with bounding boxes and live count overlays.
+## 🔍 Features
 
-Dynamic Logic: Calculates traffic density to determine "Green Light" duration based on actual demand.
+* Real-time vehicle detection using **YOLOv8**
+* Supports detection of **cars, motorcycles, buses, and trucks**
+* Dynamic traffic signal timing based on vehicle density
+* Live video streaming via Flask
+* Simple web-based dashboard
+* Google Maps–style traffic visualization (HTML-based)
+* Includes an alternative **Wireless Type** implementation
 
-Edge Ready: Optimized for performance using OpenCV for frame manipulation and efficient model inference.
+---
 
-🚀 Tech Stack
-Backend: Python, Flask
+## 🧠 Technologies Used
 
-Computer Vision: OpenCV, Ultralytics (YOLO)
+* **Python 3**
+* **Flask** – Web framework
+* **OpenCV** – Video capture and processing
+* **YOLOv8 (Ultralytics)** – Object detection model
+* **HTML/CSS/JavaScript** – Frontend
 
-Frontend: HTML5, CSS (via Flask templates)
+---
 
-Data Handling: NumPy
+## 📁 Project Structure
 
-🛠️ Installation
-Clone the Repo:
+```
+AI Traffic Controller/
+│
+├── app.py                     # Main Flask application
+├── maps.html                  # Traffic map visualization
+├── README.md                  # Project documentation
+├── models/
+│   └── yolov8n.pt             # Pre-trained YOLOv8 model
+├── templates/
+│   └── index.html             # Web interface
+│
+├── Wireless type/             # Alternative wireless-based setup
+│   ├── app.py
+│   ├── maps.html
+│   ├── models/
+│   └── templates/
+│       └── index.html
+└── .gitignore
+```
 
-Bash
+---
 
-git clone https://github.com/Manaswin05/AI-Traffic-Moderator.git
-cd AI-Traffic-Moderator
-Install Requirements:
+## ⚙️ Installation & Setup
 
-Bash
+### 1️⃣ Clone the Repository
 
-pip install flask ultralytics opencv-python
-Run the Server:
+```bash
+git clone https://github.com/your-username/ai-traffic-controller.git
+cd ai-traffic-controller
+```
 
-Bash
+### 2️⃣ Install Dependencies
 
+```bash
+pip install flask opencv-python ultralytics
+```
+
+> ⚠️ Make sure you have **Python 3.8+** installed.
+
+### 3️⃣ Run the Application
+
+```bash
 python app.py
-Access the dashboard at http://127.0.0.1:5000
+```
 
-📁 Project Structure
-app.py: The Flask server handling routing and video streaming.
+### 4️⃣ Open in Browser
 
-detector.py: Logic for YOLO inference and vehicle counting.
+Navigate to:
 
-templates/: HTML files for the web UI.
+```
+http://127.0.0.1:5000
+```
 
-static/: CSS and processed images/videos.
+---
 
-Why these libraries?
-Ultralytics: Provides the "brains" of the project; it’s the industry standard for fast, accurate object detection.
+## 🚗 How It Works
 
-OpenCV: Acts as the "eyes," handling video capture, resizing, and drawing the visual feedback on the screen.
+1. Captures live video feed from a webcam
+2. Processes each frame using YOLOv8
+3. Detects and counts vehicles
+4. Adjusts traffic signal timing dynamically
+5. Streams annotated video and traffic status to the web UI
 
-Flask: The "interface," allowing users to view the traffic data from any browser on the local network.
+---
+
+## 📌 Supported Vehicle Classes
+
+* Car
+* Motorcycle
+* Bus
+* Truck
+
+---
+
+## 🧪 Use Cases
+
+* Smart city traffic management
+* Academic and final-year projects
+* AI + Computer Vision demonstrations
+* Traffic simulation systems
+
+---
+
+## 🚀 Future Improvements
+
+* Multi-camera intersection support
+* Emergency vehicle prioritization
+* Cloud-based deployment
+* Integration with IoT traffic sensors
+* Real-time analytics dashboard
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome!
+
+1. Fork the repository
+2. Create a new branch
+3. Commit your changes
+4. Submit a pull request
+
+---
+
+## 📜 License
+
+This project is for **educational and research purposes**. Feel free to modify and enhance it.
+
+---
+
+## 👤 Author
+
+Developed by **[Your Name]**
+Feel free to connect and contribute!
