@@ -140,5 +140,6 @@ This project is for **educational and research purposes**. Feel free to modify a
 
 ## 👤 Author
 
-Developed by **[Your Name]**
+Developed by **Manaswin Sripatnala**
 Feel free to connect and contribute!
+
