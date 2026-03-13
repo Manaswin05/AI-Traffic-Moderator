@@ -1,9 +1,21 @@
 from flask import Flask, render_template, Response, jsonify
+from flask_cors import CORS
 import cv2
-from ultralytics import YOLO
 import time
+import torch
+
+# Monkey patch torch.load to use weights_only=False
+original_load = torch.load
+def patched_load(*args, **kwargs):
+    kwargs['weights_only'] = False
+    return original_load(*args, **kwargs)
+torch.load = patched_load
+
+from ultralytics import YOLO
 
 app = Flask(__name__)
+CORS(app)
+
 model = YOLO("models/yolov8n.pt")
 
 cap = cv2.VideoCapture(0)
