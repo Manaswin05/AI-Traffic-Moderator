@@ -1,0 +1,14 @@
+[phases.setup]
+nixPkgs = ["python311", "nodejs_18", "libGL", "libglib"]
+
+[phases.install]
+cmds = [
+  "pip install -r requirements.txt",
+  "npm install"
+]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "gunicorn app:app --workers 1 --threads 2 --timeout 120 --bind 0.0.0.0:$PORT"
