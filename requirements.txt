@@ -1,11 +1,4 @@
 flask==3.0.0
 flask-cors==4.0.0
-opencv-python-headless==4.8.1.78
-numpy==1.26.2
-gunicorn==21.2.0
-
-# Only needed when DEMO_MODE=false (full YOLO detection)
-# Comment these out on free tier to save memory and build time
+opencv-python==4.8.1.78
 ultralytics==8.0.196
-torch==2.1.1
-torchvision==0.16.1
