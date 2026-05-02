@@ -22,6 +22,7 @@
   "scripts": {
     "dev": "concurrently \"python app.py\" \"vite\"",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "python app.py"
   }
 }
