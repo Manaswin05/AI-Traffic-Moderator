@@ -48,3 +48,6 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+#files
+Docs/
