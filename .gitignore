@@ -48,3 +48,14 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Documentation files (keep only README)
+*.docx
+*.pptx
+*.xlsx
+*.pdf
+Docs/
+
+# Deployment configs (not needed)
+Procfile
+render.yaml
