@@ -5,6 +5,8 @@ import time
 import torch
 import numpy as np
 import os
+from sklearn.cluster import KMeans
+from collections import deque
 
 # Monkey patch torch.load to use weights_only=False
 original_load = torch.load
@@ -64,8 +66,100 @@ traffic_state = {
     "signal": "red",
     "timer": 15,
     "last_change": time.time(),
-    "vehicle_count": 0
+    "vehicle_count": 0,
+    "cluster_label": 0
 }
+
+# ---------------------------
+# Unsupervised ML Traffic Controller
+# ---------------------------
+class AdaptiveTrafficController:
+    """
+    Uses K-Means clustering to adaptively determine traffic light timing
+    based on historical vehicle count patterns.
+    """
+    def __init__(self, n_clusters=3, history_size=100):
+        self.n_clusters = n_clusters
+        self.history_size = history_size
+        self.vehicle_history = deque(maxlen=history_size)
+        self.kmeans = None
+        self.is_trained = False
+        self.min_samples_for_training = 30
+        
+        # Signal mappings (will be learned)
+        self.cluster_to_signal = {}
+        self.cluster_to_timer = {}
+        
+    def add_observation(self, vehicle_count):
+        """Add vehicle count observation to history"""
+        self.vehicle_history.append(vehicle_count)
+        
+        # Train model when we have enough data
+        if len(self.vehicle_history) >= self.min_samples_for_training and not self.is_trained:
+            self.train_model()
+    
+    def train_model(self):
+        """Train K-Means clustering on historical vehicle data"""
+        if len(self.vehicle_history) < self.min_samples_for_training:
+            return
+        
+        # Prepare data for clustering (vehicle_count as feature)
+        X = np.array(list(self.vehicle_history)).reshape(-1, 1)
+        
+        # Train K-Means
+        self.kmeans = KMeans(n_clusters=self.n_clusters, random_state=42, n_init=10)
+        self.kmeans.fit(X)
+        
+        # Sort cluster centers to get low, medium, high traffic
+        cluster_centers = self.kmeans.cluster_centers_.flatten()
+        sorted_indices = np.argsort(cluster_centers)
+        
+        # Map clusters to traffic signals (low -> red/short, high -> green/long)
+        for idx, cluster_id in enumerate(sorted_indices):
+            if idx == 0:  # Low traffic cluster
+                self.cluster_to_signal[cluster_id] = "red"
+                self.cluster_to_timer[cluster_id] = 12
+            elif idx == 1:  # Medium traffic cluster
+                self.cluster_to_signal[cluster_id] = "yellow"
+                self.cluster_to_timer[cluster_id] = 18
+            else:  # High traffic cluster
+                self.cluster_to_signal[cluster_id] = "green"
+                self.cluster_to_timer[cluster_id] = 25
+        
+        self.is_trained = True
+        print(f"✓ K-Means model trained with {len(self.vehicle_history)} samples")
+        print(f"  Cluster centers (vehicle counts): {sorted(cluster_centers)}")
+    
+    def predict_signal(self, vehicle_count):
+        """
+        Predict optimal traffic signal based on current vehicle count
+        Returns: (signal_color, timer_duration, cluster_label)
+        """
+        if not self.is_trained:
+            # Fallback to simple rules until model is trained
+            if vehicle_count >= 10:
+                return "green", 20, -1
+            elif vehicle_count >= 5:
+                return "yellow", 15, -1
+            else:
+                return "red", 12, -1
+        
+        # Predict cluster
+        X = np.array([[vehicle_count]])
+        cluster_label = self.kmeans.predict(X)[0]
+        
+        signal = self.cluster_to_signal.get(cluster_label, "red")
+        timer = self.cluster_to_timer.get(cluster_label, 15)
+        
+        return signal, timer, int(cluster_label)
+    
+    def retrain_periodically(self):
+        """Retrain model to adapt to changing traffic patterns"""
+        if len(self.vehicle_history) >= self.history_size:
+            self.train_model()
+
+# Initialize adaptive traffic controller
+traffic_controller = AdaptiveTrafficController(n_clusters=3, history_size=100)
 
 
 # ---------------------------
@@ -153,28 +247,36 @@ def process_frame():
             cv2.putText(frame, label, (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-        # Traffic light logic
+        # Add observation to adaptive controller
+        traffic_controller.add_observation(vehicle_count)
+
+        # Adaptive traffic light logic using K-Means clustering
         current_time = time.time()
         elapsed_time = current_time - traffic_state["last_change"]
 
         if elapsed_time >= traffic_state["timer"]:
-            if traffic_state["signal"] == "red":
-                if vehicle_count >= 10:
-                    traffic_state["signal"] = "green"
-                    traffic_state["timer"] = 15
-                elif vehicle_count >= 5:
-                    traffic_state["signal"] = "yellow"
-                    traffic_state["timer"] = 10
-                else:
-                    traffic_state["signal"] = "red"
-                    traffic_state["timer"] = 15
-            elif traffic_state["signal"] == "green":
+            # Get ML-based prediction for signal state
+            predicted_signal, predicted_timer, cluster_label = traffic_controller.predict_signal(vehicle_count)
+            
+            # Handle transitions properly (always go through yellow when changing)
+            if traffic_state["signal"] == "green" and predicted_signal == "red":
                 traffic_state["signal"] = "yellow"
                 traffic_state["timer"] = 4
             elif traffic_state["signal"] == "yellow":
                 traffic_state["signal"] = "red"
-                traffic_state["timer"] = 15
-
+                traffic_state["timer"] = predicted_timer
+            elif traffic_state["signal"] == "red":
+                if predicted_signal == "green":
+                    traffic_state["signal"] = "green"
+                    traffic_state["timer"] = predicted_timer
+                elif predicted_signal == "yellow":
+                    traffic_state["signal"] = "yellow"
+                    traffic_state["timer"] = predicted_timer
+                else:
+                    traffic_state["signal"] = "red"
+                    traffic_state["timer"] = predicted_timer
+            
+            traffic_state["cluster_label"] = cluster_label
             traffic_state["last_change"] = current_time
 
         traffic_state["vehicle_count"] = vehicle_count
@@ -186,6 +288,11 @@ def process_frame():
                     (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, sig_color, 2)
         cv2.putText(frame, f"Vehicles: {vehicle_count}",
                     (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+        
+        # Show ML status
+        ml_status = "ML: TRAINED" if traffic_controller.is_trained else f"ML: LEARNING ({len(traffic_controller.vehicle_history)}/30)"
+        cv2.putText(frame, ml_status, (20, 130), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 200, 0), 2)
 
         _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
         yield (b'--frame\r\n'
@@ -208,7 +315,9 @@ def video_feed():
 def traffic_status():
     return jsonify({
         "traffic_light": traffic_state["signal"],
-        "vehicle_count": traffic_state["vehicle_count"]
+        "vehicle_count": traffic_state["vehicle_count"],
+        "ml_trained": traffic_controller.is_trained,
+        "cluster_label": traffic_state.get("cluster_label", -1)
     })
 
 
@@ -231,6 +340,7 @@ if __name__ == "__main__":
     print("AI Traffic Control System - Starting")
     print("=" * 50)
     print(f"Camera/Video status: {'Ready' if cap is not None else 'NOT FOUND (placeholder mode)'}")
+    print("ML Controller: K-Means Clustering (Unsupervised)")
     print("Flask server: http://localhost:5000")
     print("=" * 50)
 

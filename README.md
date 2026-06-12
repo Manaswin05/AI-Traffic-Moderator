@@ -10,35 +10,44 @@ A modern AI-powered traffic signal control system that uses **YOLOv8** for real-
 ## ✨ Features
 
 - 🎯 **Real-time Vehicle Detection** - YOLOv8 powered detection for cars, motorcycles, buses, and trucks
-- 🚦 **Dynamic Traffic Signal Control** - AI-based signal timing based on vehicle density
+- 🤖 **Unsupervised ML Traffic Control** - K-Means clustering for adaptive signal timing
 - 📊 **Live Analytics Dashboard** - Real-time vehicle count graphs and statistics
 - 🗺️ **Interactive Map View** - Traffic camera location visualization with Leaflet
 - 📹 **Live Video Streaming** - Real-time camera feed with vehicle annotations
+- 🧠 **Self-Learning System** - Automatically adapts to traffic patterns without manual tuning
 - 🎨 **Modern UI** - Professional React-based interface with smooth animations
 - 📱 **Responsive Design** - Works seamlessly on desktop and mobile devices
 
 ## 🛠️ Tech Stack
 
 ### Frontend
-- **React 18** - Modern UI framework
-- **React Router** - Client-side routing
-- **Chart.js** - Real-time data visualization
-- **React Leaflet** - Interactive maps
-- **Axios** - HTTP client
-- **Vite** - Fast build tool
+- **React 18.2.0** - Modern UI framework
+- **React Router 6.20.0** - Client-side routing
+- **Chart.js 4.4.0** - Real-time data visualization
+- **React Leaflet 4.2.1** - Interactive maps with Leaflet 1.9.4
+- **Axios 1.6.2** - HTTP client
+- **Three.js 0.183.2** - 3D graphics library
+- **Lenis 1.3.19** - Smooth scrolling
+- **Vite 5.0.8** - Fast build tool and dev server
 
 ### Backend
-- **Flask** - Python web framework
-- **OpenCV** - Video processing
-- **YOLOv8 (Ultralytics)** - Object detection
-- **PyTorch** - Deep learning framework
+- **Flask 3.0.0** - Python web framework
+- **Flask-CORS 4.0.0** - Cross-origin resource sharing
+- **OpenCV 4.8.1.78** (headless) - Video processing
+- **YOLOv8 (Ultralytics 8.0.196)** - Object detection
+- **PyTorch 2.1.1** - Deep learning framework
+- **Scikit-learn 1.3.2** - K-Means clustering for adaptive traffic control
+- **Gunicorn 21.2.0** - WSGI HTTP server for production
+- **NumPy 1.26.2** - Numerical computing
 
 ## 📋 Prerequisites
 
-- **Python 3.8+**
+- **Python 3.8+** (tested with Python 3.11)
 - **Node.js 16+** and npm
-- **Webcam** (for live detection)
+- **Webcam** (for live detection) or a video file
 - **Git**
+- **2GB RAM** minimum (4GB+ recommended for smooth performance)
+- **GPU** optional but recommended for better performance
 
 ## 🚀 Installation & Setup
 
@@ -49,23 +58,48 @@ git clone https://github.com/your-username/AI-Traffic-Moderator.git
 cd AI-Traffic-Moderator
 ```
 
-### 2. Install Python Dependencies
+### 2. Set Up Python Virtual Environment (Recommended)
+
+```bash
+# Create virtual environment
+python -m venv .venv
+
+# Activate virtual environment
+# On Windows:
+.venv\Scripts\activate
+# On macOS/Linux:
+source .venv/bin/activate
+```
+
+### 3. Install Python Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Install Node.js Dependencies
+### 4. Install Node.js Dependencies
 
 ```bash
 npm install
 ```
 
+### 5. Set Up YOLOv8 Model
+
+The YOLOv8 nano model (`yolov8n.pt`) should be placed in the `models/` directory. It will be automatically downloaded by Ultralytics on first run if not present.
+
 ## 🎮 Running the Application
 
-You need to run both the backend and frontend servers:
+### Option 1: Run Both Servers with One Command (Recommended)
 
-### Terminal 1: Start Flask Backend
+```bash
+npm run dev
+```
+
+This will start both the Flask backend (port 5000) and Vite frontend (port 5173) concurrently.
+
+### Option 2: Run Servers Separately
+
+**Terminal 1: Start Flask Backend**
 
 ```bash
 python app.py
@@ -73,22 +107,39 @@ python app.py
 
 The backend will run on `http://localhost:5000`
 
-### Terminal 2: Start React Frontend
+**Terminal 2: Start React Frontend**
 
 ```bash
-npm run dev
+vite
 ```
 
-The frontend will run on `http://localhost:3000`
+The frontend will run on `http://localhost:5173`
 
 ### Access the Application
 
 Open your browser and navigate to:
 ```
-http://localhost:3000
+http://localhost:5173
 ```
 
 **Login:** Use any username and password (demo authentication)
+
+## 🎥 Video Source Options
+
+The application supports multiple video sources:
+
+1. **Webcam (Default)**: Automatically detects available webcams (indexes 0, 1, 2)
+2. **Video File**: Set environment variable `VIDEO_SOURCE` to your video file path
+   ```bash
+   # Windows
+   set VIDEO_SOURCE=path/to/traffic_video.mp4
+   python app.py
+   
+   # macOS/Linux
+   export VIDEO_SOURCE=path/to/traffic_video.mp4
+   python app.py
+   ```
+3. **Placeholder Mode**: If no camera or video is found, displays a placeholder with grid pattern
 
 ## 📁 Project Structure
 
@@ -107,6 +158,7 @@ AI-Traffic-Moderator/
 ├── models/                      # AI models
 │   └── yolov8n.pt              # YOLOv8 nano model
 ├── Wireless type/               # Future wireless implementation
+├── Docs/                        # Project documentation
 ├── app.py                       # Flask backend server
 ├── requirements.txt             # Python dependencies
 ├── package.json                 # Node.js dependencies
@@ -114,17 +166,74 @@ AI-Traffic-Moderator/
 └── README.md                    # This file
 ```
 
+## 🤖 Unsupervised ML Approach
+
+### K-Means Clustering for Adaptive Traffic Control
+
+Instead of using fixed if-else rules, this system employs **K-Means clustering** (unsupervised learning) to automatically learn optimal traffic patterns:
+
+#### How It Works
+
+1. **Data Collection Phase** (0-30 observations)
+   - System collects vehicle count data from real-time detection
+   - Operates using fallback rules during learning phase
+   - Shows "ML: LEARNING (X/30)" status on video feed
+
+2. **Training Phase** (after 30+ observations)
+   - K-Means algorithm identifies 3 natural clusters in traffic data
+   - Clusters represent: Low, Medium, and High traffic density
+   - Automatically determines optimal signal timing for each cluster
+   - Shows "ML: TRAINED" status on video feed
+
+3. **Prediction Phase** (ongoing)
+   - Current vehicle count is classified into learned clusters
+   - Signal timing adapts based on cluster characteristics
+   - Maintains 100-observation rolling window for continuous adaptation
+   - Retrains periodically to adapt to changing traffic patterns
+
+#### Advantages Over Rule-Based Systems
+
+- ✅ **Self-calibrating**: No manual threshold tuning required
+- ✅ **Adaptive**: Learns from actual traffic patterns at deployment location
+- ✅ **Dynamic**: Continuously adapts to changing traffic conditions
+- ✅ **Efficient**: Optimizes signal timing based on real data distribution
+- ✅ **Scalable**: Can handle different traffic scenarios without reprogramming
+
+#### Technical Details
+
+```python
+class AdaptiveTrafficController:
+    """
+    K-Means based adaptive traffic light controller
+    - n_clusters: 3 (low, medium, high traffic)
+    - history_size: 100 observations (rolling window)
+    - min_samples: 30 (before initial training)
+    """
+```
+
+**Cluster Mapping** (automatically learned):
+- Cluster 0 (Low traffic) → Red signal (~12s)
+- Cluster 1 (Medium traffic) → Yellow signal (~18s)
+- Cluster 2 (High traffic) → Green signal (~25s)
+
+The system automatically identifies which cluster represents which traffic level based on the average vehicle count in each cluster.
+
 ## 🎯 How It Works
 
-1. **Video Capture** - Captures live video feed from webcam
-2. **Vehicle Detection** - YOLOv8 processes each frame to detect vehicles
-3. **Traffic Analysis** - Counts vehicles and determines traffic density
-4. **Signal Control** - Adjusts traffic signal timing dynamically:
-   - **Red**: Low traffic (< 5 vehicles) - 15 seconds
-   - **Yellow**: Medium traffic (5-9 vehicles) - 10 seconds
-   - **Green**: High traffic (≥ 10 vehicles) - 15 seconds
-5. **Real-time Updates** - Frontend polls backend every 5 seconds for updates
-6. **Data Visualization** - Displays live graphs and statistics
+1. **Video Capture** - Captures live video feed from webcam or video file
+2. **Vehicle Detection** - YOLOv8 processes each frame to detect vehicles (cars, motorcycles, buses, trucks)
+3. **Traffic Analysis** - Counts vehicles and feeds data to ML controller
+4. **Unsupervised Learning** - K-Means clustering adaptively learns traffic patterns:
+   - Collects historical vehicle count data (100 observations)
+   - Trains after 30 samples to identify 3 traffic density clusters (low, medium, high)
+   - Dynamically adjusts signal timing based on learned patterns
+   - Adapts to changing traffic conditions over time
+5. **Signal Control** - ML-predicted timing with proper transitions:
+   - **Low traffic cluster**: Red signal (~12 seconds)
+   - **Medium traffic cluster**: Yellow signal (~18 seconds)  
+   - **High traffic cluster**: Green signal (~25 seconds)
+6. **Real-time Updates** - Frontend polls backend every 5 seconds for updates
+7. **Data Visualization** - Displays live graphs, statistics, and ML training status
 
 ## 🚗 Supported Vehicle Classes
 
@@ -139,10 +248,12 @@ AI-Traffic-Moderator/
 - Real-time video stream with vehicle detection boxes
 - Vehicle labels and bounding boxes
 - Traffic signal status overlay
+- ML training status indicator ("LEARNING" or "TRAINED")
 
 ### Traffic Statistics
 - Current vehicle count
-- System status indicator
+- ML model training status
+- Traffic density cluster label
 - Real-time updates
 
 ### Analytics Graph
@@ -166,19 +277,32 @@ cap = cv2.VideoCapture(0)  # Change 0 to camera index
 # Vehicle classes (COCO dataset)
 VEHICLE_CLASSES = {2: 'car', 3: 'motorcycle', 5: 'bus', 7: 'truck'}
 
-# Traffic signal timing
-traffic_state = {
-    "signal": "red",
-    "timer": 15,
-    "vehicle_count": 0
-}
+# Adaptive traffic controller settings
+traffic_controller = AdaptiveTrafficController(
+    n_clusters=3,        # Number of traffic density clusters (low, medium, high)
+    history_size=100     # Maximum historical observations to retain
+)
+
+# ML Model Training
+min_samples_for_training = 30  # Minimum observations before training starts
+```
+
+### ML Controller Parameters
+
+You can customize the unsupervised learning behavior:
+
+```python
+# In AdaptiveTrafficController class
+self.n_clusters = 3              # Number of traffic clusters (default: 3)
+self.history_size = 100          # Size of rolling history window
+self.min_samples_for_training = 30  # Samples needed before first training
 ```
 
 ### Frontend Configuration (vite.config.js)
 
 ```javascript
 server: {
-  port: 3000,
+  port: 5173,  // Default Vite port
   proxy: {
     '/video_feed': 'http://localhost:5000',
     '/traffic_status': 'http://localhost:5000'
@@ -186,11 +310,16 @@ server: {
 }
 ```
 
+### Environment Variables
+
+- `VIDEO_SOURCE`: Path to video file (optional, defaults to webcam)
+- `PORT`: Backend server port (default: 5000)
+
 ## 🐛 Troubleshooting
 
-### PyTorch 2.6 Model Loading Issue
+### PyTorch Model Loading Issue
 
-If you encounter `_pickle.UnpicklingError`, the code includes a fix:
+If you encounter `_pickle.UnpicklingError` with newer PyTorch versions, the code includes a fix:
 
 ```python
 # Monkey patch torch.load to use weights_only=False
@@ -203,14 +332,40 @@ torch.load = patched_load
 
 ### Camera Not Working
 
-- Check if camera is being used by another application
-- Verify camera permissions in Windows settings
-- Try changing camera index in `app.py`: `cv2.VideoCapture(1)` or `cv2.VideoCapture(2)`
+- **Check usage**: Ensure camera isn't being used by another application
+- **Permissions**: Verify camera permissions in Windows/macOS settings
+- **Alternative camera**: The app automatically tries indexes 0, 1, 2
+- **Use video file**: Set `VIDEO_SOURCE` environment variable to a video file path
+- **Placeholder mode**: If no source is found, a placeholder with grid pattern will display
 
 ### Port Already in Use
 
-- Frontend: Change port in `vite.config.js`
-- Backend: Change port in `app.py`: `app.run(port=5001)`
+- **Frontend**: Change port in `vite.config.js` (default: 5173)
+- **Backend**: Change port in `app.py`: `app.run(port=5001)` or set `PORT` environment variable
+
+### Performance Issues
+
+- **High memory usage**: See [Performance & Memory Optimization](#-performance--memory-optimization) section
+- **Reduce frame rate**: Modify `time.sleep(0.067)` in `process_frame()` to increase delay (e.g., 0.1 for ~10fps)
+- **Lower resolution**: Adjust camera resolution in `init_camera()` (480x360 instead of 640x480)
+- **Skip frames**: Process every 2nd or 3rd frame instead of every frame
+- **Lower JPEG quality**: Reduce `cv2.IMWRITE_JPEG_QUALITY` parameter from 80 to 60
+- **Enable GPU**: Install PyTorch with CUDA support for GPU acceleration
+  ```bash
+  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+  ```
+
+### Module Not Found Errors
+
+```bash
+# Ensure virtual environment is activated
+.venv\Scripts\activate  # Windows
+source .venv/bin/activate  # macOS/Linux
+
+# Reinstall dependencies
+pip install -r requirements.txt
+npm install
+```
 
 ## 🚀 Building for Production
 
@@ -218,16 +373,64 @@ torch.load = patched_load
 npm run build
 ```
 
-The production build will be in the `dist/` folder.
+The production build will be in the `dist/` folder. The Flask backend will automatically serve the built React app from the `dist/` folder.
+
+## ⚡ Performance & Memory Optimization
+
+### Reduce Memory Consumption
+
+1. **Use YOLOv8 Nano Model** (already configured)
+   - Smallest YOLOv8 variant (~6MB)
+   - Balanced accuracy and speed
+
+2. **Lower Video Resolution**
+   ```python
+   # In app.py init_camera() function
+   cam.set(cv2.CAP_PROP_FRAME_WIDTH, 480)   # Reduce from 640
+   cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)  # Reduce from 480
+   ```
+
+3. **Reduce Frame Rate**
+   ```python
+   # In process_frame() function
+   time.sleep(0.1)  # Increase from 0.067 for ~10 fps instead of 15 fps
+   ```
+
+4. **Use Headless OpenCV**
+   - Already using `opencv-python-headless` in requirements.txt
+   - Reduces dependencies and memory footprint
+
+5. **Limit Detection Frequency**
+   ```python
+   # Skip frames for detection
+   frame_count = 0
+   if frame_count % 3 == 0:  # Detect every 3rd frame
+       vehicles = detect_vehicles(frame)
+   frame_count += 1
+   ```
+
+6. **Optimize JPEG Encoding**
+   ```python
+   # Lower JPEG quality to reduce bandwidth
+   cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 60])  # Reduce from 80
+   ```
+
+### Typical Memory Usage
+
+- **Minimal setup**: ~800MB RAM (YOLOv8n + Flask + OpenCV)
+- **With frontend**: ~1.2GB RAM total
+- **GPU acceleration**: Requires ~2GB VRAM (optional)
 
 ## 🔮 Future Enhancements
 
 - [ ] Multi-camera intersection support
 - [ ] Emergency vehicle prioritization
-- [ ] Cloud-based deployment
-- [ ] Historical data analytics
+- [ ] Historical data analytics and visualization
 - [ ] Mobile app integration
 - [ ] Wireless sensor integration (see `Wireless type/` folder)
+- [ ] Advanced ML models (LSTM for time-series prediction)
+- [ ] Multi-objective optimization (wait time + throughput)
+- [ ] Real-time model retraining with online learning
 
 ## 📝 License
 
