@@ -1,4 +1,4 @@
-from flask import Flask, render_template, Response, jsonify, send_from_directory
+from flask import Flask, render_template, Response, jsonify, send_from_directory, request
 from flask_cors import CORS
 import cv2
 import time
@@ -78,25 +78,32 @@ class AdaptiveTrafficController:
     Uses K-Means clustering to adaptively determine traffic light timing
     based on historical vehicle count patterns.
     """
-    def __init__(self, n_clusters=3, history_size=100):
+    def __init__(self, n_clusters=3, history_size=100, min_samples_for_training=15):
         self.n_clusters = n_clusters
         self.history_size = history_size
         self.vehicle_history = deque(maxlen=history_size)
         self.kmeans = None
         self.is_trained = False
-        self.min_samples_for_training = 30
+        self.min_samples_for_training = min_samples_for_training  # Reduced for faster demo training
+        self.frame_count = 0
+        self.sample_interval = 15  # Sample every 15 frames for faster data collection
+        self.auto_train_enabled = True  # Allow toggling auto-training
         
         # Signal mappings (will be learned)
         self.cluster_to_signal = {}
         self.cluster_to_timer = {}
         
     def add_observation(self, vehicle_count):
-        """Add vehicle count observation to history"""
-        self.vehicle_history.append(vehicle_count)
+        """Add vehicle count observation to history (with sampling to speed up collection)"""
+        self.frame_count += 1
         
-        # Train model when we have enough data
-        if len(self.vehicle_history) >= self.min_samples_for_training and not self.is_trained:
-            self.train_model()
+        # Sample every Nth frame to collect data faster
+        if self.frame_count % self.sample_interval == 0:
+            self.vehicle_history.append(vehicle_count)
+            
+            # Train model automatically when we have enough data (if auto-train is enabled)
+            if self.auto_train_enabled and len(self.vehicle_history) >= self.min_samples_for_training and not self.is_trained:
+                self.train_model()
     
     def train_model(self):
         """Train K-Means clustering on historical vehicle data"""
@@ -114,17 +121,20 @@ class AdaptiveTrafficController:
         cluster_centers = self.kmeans.cluster_centers_.flatten()
         sorted_indices = np.argsort(cluster_centers)
         
-        # Map clusters to traffic signals (low -> red/short, high -> green/long)
+        # Map clusters to traffic signals based on traffic density
+        # Low traffic -> Short green (vehicles can pass quickly)
+        # Medium traffic -> Medium green
+        # High traffic -> Long green (need more time to clear)
         for idx, cluster_id in enumerate(sorted_indices):
             if idx == 0:  # Low traffic cluster
-                self.cluster_to_signal[cluster_id] = "red"
-                self.cluster_to_timer[cluster_id] = 12
+                self.cluster_to_signal[cluster_id] = "green"
+                self.cluster_to_timer[cluster_id] = 15
             elif idx == 1:  # Medium traffic cluster
-                self.cluster_to_signal[cluster_id] = "yellow"
-                self.cluster_to_timer[cluster_id] = 18
+                self.cluster_to_signal[cluster_id] = "green"
+                self.cluster_to_timer[cluster_id] = 20
             else:  # High traffic cluster
                 self.cluster_to_signal[cluster_id] = "green"
-                self.cluster_to_timer[cluster_id] = 25
+                self.cluster_to_timer[cluster_id] = 30
         
         self.is_trained = True
         print(f"✓ K-Means model trained with {len(self.vehicle_history)} samples")
@@ -138,18 +148,18 @@ class AdaptiveTrafficController:
         if not self.is_trained:
             # Fallback to simple rules until model is trained
             if vehicle_count >= 10:
-                return "green", 20, -1
+                return "green", 25, -1
             elif vehicle_count >= 5:
-                return "yellow", 15, -1
+                return "green", 20, -1
             else:
-                return "red", 12, -1
+                return "green", 15, -1
         
         # Predict cluster
         X = np.array([[vehicle_count]])
         cluster_label = self.kmeans.predict(X)[0]
         
-        signal = self.cluster_to_signal.get(cluster_label, "red")
-        timer = self.cluster_to_timer.get(cluster_label, 15)
+        signal = self.cluster_to_signal.get(cluster_label, "green")
+        timer = self.cluster_to_timer.get(cluster_label, 20)
         
         return signal, timer, int(cluster_label)
     
@@ -159,7 +169,8 @@ class AdaptiveTrafficController:
             self.train_model()
 
 # Initialize adaptive traffic controller
-traffic_controller = AdaptiveTrafficController(n_clusters=3, history_size=100)
+# Using lower min_samples (15) for faster demo training with YouTube videos
+traffic_controller = AdaptiveTrafficController(n_clusters=3, history_size=100, min_samples_for_training=15)
 
 
 # ---------------------------
@@ -255,26 +266,22 @@ def process_frame():
         elapsed_time = current_time - traffic_state["last_change"]
 
         if elapsed_time >= traffic_state["timer"]:
-            # Get ML-based prediction for signal state
+            # Get ML-based prediction for green light duration
             predicted_signal, predicted_timer, cluster_label = traffic_controller.predict_signal(vehicle_count)
             
-            # Handle transitions properly (always go through yellow when changing)
-            if traffic_state["signal"] == "green" and predicted_signal == "red":
+            # Proper traffic light state machine
+            if traffic_state["signal"] == "red":
+                # Red -> Green (allow traffic to flow)
+                traffic_state["signal"] = "green"
+                traffic_state["timer"] = predicted_timer
+            elif traffic_state["signal"] == "green":
+                # Green -> Yellow (prepare to stop)
                 traffic_state["signal"] = "yellow"
                 traffic_state["timer"] = 4
             elif traffic_state["signal"] == "yellow":
+                # Yellow -> Red (stop and wait for next cycle)
                 traffic_state["signal"] = "red"
-                traffic_state["timer"] = predicted_timer
-            elif traffic_state["signal"] == "red":
-                if predicted_signal == "green":
-                    traffic_state["signal"] = "green"
-                    traffic_state["timer"] = predicted_timer
-                elif predicted_signal == "yellow":
-                    traffic_state["signal"] = "yellow"
-                    traffic_state["timer"] = predicted_timer
-                else:
-                    traffic_state["signal"] = "red"
-                    traffic_state["timer"] = predicted_timer
+                traffic_state["timer"] = 8  # Red light duration before next green
             
             traffic_state["cluster_label"] = cluster_label
             traffic_state["last_change"] = current_time
@@ -290,7 +297,11 @@ def process_frame():
                     (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
         
         # Show ML status
-        ml_status = "ML: TRAINED" if traffic_controller.is_trained else f"ML: LEARNING ({len(traffic_controller.vehicle_history)}/30)"
+        samples_collected = len(traffic_controller.vehicle_history)
+        if traffic_controller.is_trained:
+            ml_status = f"ML: TRAINED ({samples_collected} samples)"
+        else:
+            ml_status = f"ML: LEARNING ({samples_collected}/{traffic_controller.min_samples_for_training})"
         cv2.putText(frame, ml_status, (20, 130), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 200, 0), 2)
 
@@ -311,13 +322,90 @@ def video_feed():
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
-@app.route('/traffic_status')
+@app.route('/api/traffic_status')
 def traffic_status():
     return jsonify({
         "traffic_light": traffic_state["signal"],
         "vehicle_count": traffic_state["vehicle_count"],
         "ml_trained": traffic_controller.is_trained,
-        "cluster_label": traffic_state.get("cluster_label", -1)
+        "cluster_label": traffic_state.get("cluster_label", -1),
+        "samples_collected": len(traffic_controller.vehicle_history),
+        "min_samples_required": traffic_controller.min_samples_for_training
+    })
+
+
+@app.route('/api/train_model', methods=['POST'])
+def train_model():
+    """Manually trigger model training"""
+    try:
+        if len(traffic_controller.vehicle_history) < 5:
+            return jsonify({
+                "success": False,
+                "message": f"Need at least 5 observations. Currently have {len(traffic_controller.vehicle_history)}."
+            }), 400
+        
+        traffic_controller.train_model()
+        return jsonify({
+            "success": True,
+            "message": f"Model trained successfully with {len(traffic_controller.vehicle_history)} samples!",
+            "is_trained": traffic_controller.is_trained
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Training failed: {str(e)}"
+        }), 500
+
+
+@app.route('/api/reset_model', methods=['POST'])
+def reset_model():
+    """Reset the ML model and start fresh"""
+    try:
+        traffic_controller.vehicle_history.clear()
+        traffic_controller.kmeans = None
+        traffic_controller.is_trained = False
+        traffic_controller.cluster_to_signal = {}
+        traffic_controller.cluster_to_timer = {}
+        traffic_controller.frame_count = 0
+        
+        return jsonify({
+            "success": True,
+            "message": "Model reset successfully. Starting fresh data collection."
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Reset failed: {str(e)}"
+        }), 500
+
+
+@app.route('/api/toggle_auto_train', methods=['POST'])
+def toggle_auto_train():
+    """Toggle automatic training on/off"""
+    try:
+        import json
+        data = json.loads(request.data) if request.data else {}
+        traffic_controller.auto_train_enabled = data.get('enabled', not traffic_controller.auto_train_enabled)
+        
+        return jsonify({
+            "success": True,
+            "auto_train_enabled": traffic_controller.auto_train_enabled,
+            "message": f"Auto-training {'enabled' if traffic_controller.auto_train_enabled else 'disabled'}"
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Toggle failed: {str(e)}"
+        }), 500
+
+
+@app.route('/api/health')
+def health():
+    """Health check endpoint"""
+    return jsonify({
+        "status": "healthy",
+        "camera_active": cap is not None,
+        "ml_status": "trained" if traffic_controller.is_trained else "learning"
     })
 
 
@@ -325,6 +413,17 @@ def traffic_status():
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_react(path):
+    # API routes should not reach here
+    if path.startswith('api/') or path.startswith('video_feed'):
+        return jsonify({"error": "Not found"}), 404
+    
+    # If running in development (no dist folder), return error message
+    if not app.static_folder or not os.path.exists(app.static_folder):
+        return jsonify({
+            "message": "Development mode - Frontend should be served by Vite on port 3000",
+            "frontend_url": "http://localhost:3000"
+        })
+    
     # If the path is a static file that exists, serve it
     if path and os.path.exists(os.path.join(app.static_folder, path)):
         return send_from_directory(app.static_folder, path)

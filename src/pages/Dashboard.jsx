@@ -27,8 +27,13 @@ ChartJS.register(
 function Dashboard() {
   const [trafficData, setTrafficData] = useState({
     traffic_light: 'red',
-    vehicle_count: 0
+    vehicle_count: 0,
+    ml_trained: false,
+    samples_collected: 0,
+    min_samples_required: 15
   })
+
+  const [notification, setNotification] = useState({ show: false, message: '', type: '' })
 
   const [chartData, setChartData] = useState({
     labels: [],
@@ -47,7 +52,7 @@ function Dashboard() {
   useEffect(() => {
     const fetchTrafficStatus = async () => {
       try {
-        const response = await axios.get('/traffic_status')
+        const response = await axios.get('/api/traffic_status')
         setTrafficData(response.data)
         
         // Update chart data
@@ -156,8 +161,41 @@ function Dashboard() {
     }
   }
 
+  const showNotification = (message, type = 'info') => {
+    setNotification({ show: true, message, type })
+    setTimeout(() => setNotification({ show: false, message: '', type: '' }), 3000)
+  }
+
+  const handleTrainModel = async () => {
+    try {
+      const response = await axios.post('/api/train_model')
+      showNotification(response.data.message, 'success')
+    } catch (error) {
+      showNotification(error.response?.data?.message || 'Training failed', 'error')
+    }
+  }
+
+  const handleResetModel = async () => {
+    if (!window.confirm('Are you sure you want to reset the ML model? This will clear all collected data.')) {
+      return
+    }
+    
+    try {
+      const response = await axios.post('/api/reset_model')
+      showNotification(response.data.message, 'success')
+    } catch (error) {
+      showNotification(error.response?.data?.message || 'Reset failed', 'error')
+    }
+  }
+
   return (
     <div className="dashboard">
+      {notification.show && (
+        <div className={`notification notification-${notification.type}`}>
+          {notification.message}
+        </div>
+      )}
+      
       <div className="container">
         <h1 className="page-title">Live Traffic Dashboard</h1>
         
@@ -189,10 +227,47 @@ function Dashboard() {
                 </div>
               </div>
               <div className="stat-item">
+                <span className="stat-icon">🤖</span>
+                <div className="stat-info">
+                  <span className="stat-label">ML Status</span>
+                  <span className={`stat-value ${trafficData.ml_trained ? 'trained' : 'learning'}`}>
+                    {trafficData.ml_trained ? '✓ Trained' : `Learning ${trafficData.samples_collected}/${trafficData.min_samples_required}`}
+                  </span>
+                </div>
+              </div>
+              <div className="stat-item">
                 <span className="stat-icon">⏱️</span>
                 <div className="stat-info">
                   <span className="stat-label">Status</span>
                   <span className="stat-value">Active</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="card ml-controls-card">
+              <h3>🧠 ML Controls</h3>
+              <div className="ml-controls">
+                <button 
+                  className="control-btn train-btn"
+                  onClick={handleTrainModel}
+                  disabled={trafficData.samples_collected < 5}
+                  title={trafficData.samples_collected < 5 ? 'Need at least 5 samples' : 'Train model now'}
+                >
+                  🎯 Train Model Now
+                </button>
+                <button 
+                  className="control-btn reset-btn"
+                  onClick={handleResetModel}
+                  title="Reset and start fresh"
+                >
+                  🔄 Reset & Start Fresh
+                </button>
+                <div className="ml-info">
+                  <small>
+                    {trafficData.ml_trained 
+                      ? `✓ Model trained with ${trafficData.samples_collected} samples` 
+                      : `Collecting data... ${trafficData.samples_collected}/${trafficData.min_samples_required} samples`}
+                  </small>
                 </div>
               </div>
             </div>

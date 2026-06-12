@@ -11,6 +11,7 @@ A modern AI-powered traffic signal control system that uses **YOLOv8** for real-
 
 - 🎯 **Real-time Vehicle Detection** - YOLOv8 powered detection for cars, motorcycles, buses, and trucks
 - 🤖 **Unsupervised ML Traffic Control** - K-Means clustering for adaptive signal timing
+- 🎛️ **Manual Training Controls** - Train or reset ML model on-demand via dashboard
 - 📊 **Live Analytics Dashboard** - Real-time vehicle count graphs and statistics
 - 🗺️ **Interactive Map View** - Traffic camera location visualization with Leaflet
 - 📹 **Live Video Streaming** - Real-time camera feed with vehicle annotations
@@ -141,6 +142,30 @@ The application supports multiple video sources:
    ```
 3. **Placeholder Mode**: If no camera or video is found, displays a placeholder with grid pattern
 
+### 🎬 Demo with YouTube Videos
+
+For demo/testing purposes without real traffic cameras:
+
+1. Find a traffic monitoring video on YouTube (search "traffic cam live")
+2. Start the application:
+   ```bash
+   npm run dev
+   ```
+3. Play the YouTube video in fullscreen or large window
+4. Point your laptop camera at the screen
+5. Navigate to the Dashboard
+6. Watch the ML status indicator: "ML: LEARNING (X/15)"
+7. **Option A**: Wait ~30 seconds for automatic training when 15 samples are collected
+8. **Option B**: Use "🎯 Train Model Now" button for manual training (needs minimum 5 samples)
+9. Once trained, observe how traffic lights adapt to the video's traffic patterns!
+
+**Manual Training Controls:**
+- **Train Model Now**: Manually trigger training before auto-training (needs ≥5 samples)
+- **Reset & Start Fresh**: Clear all collected data and restart learning
+- **ML Status Display**: Shows training progress and sample count
+
+**Tip**: Use videos with varying traffic density (rush hour, light traffic) for better ML training.
+
 ## 📁 Project Structure
 
 ```
@@ -174,20 +199,27 @@ Instead of using fixed if-else rules, this system employs **K-Means clustering**
 
 #### How It Works
 
-1. **Data Collection Phase** (0-30 observations)
+1. **Data Collection Phase** (0-15 observations)
    - System collects vehicle count data from real-time detection
+   - Samples every 15 frames to speed up data collection
    - Operates using fallback rules during learning phase
-   - Shows "ML: LEARNING (X/30)" status on video feed
+   - Shows "ML: LEARNING (X/15)" status on video feed
+   - **Takes ~30 seconds** to collect enough data for training
 
-2. **Training Phase** (after 30+ observations)
+2. **Training Phase** (after 15+ observations)
    - K-Means algorithm identifies 3 natural clusters in traffic data
    - Clusters represent: Low, Medium, and High traffic density
    - Automatically determines optimal signal timing for each cluster
    - Shows "ML: TRAINED" status on video feed
+   - **Happens automatically** after ~30 seconds of operation
 
 3. **Prediction Phase** (ongoing)
    - Current vehicle count is classified into learned clusters
-   - Signal timing adapts based on cluster characteristics
+   - Green light duration adapts based on cluster characteristics:
+     - **Low traffic cluster**: 15 seconds green
+     - **Medium traffic cluster**: 20 seconds green
+     - **High traffic cluster**: 30 seconds green
+   - Proper signal transitions: Red → Green → Yellow → Red
    - Maintains 100-observation rolling window for continuous adaptation
    - Retrains periodically to adapt to changing traffic patterns
 
@@ -212,11 +244,11 @@ class AdaptiveTrafficController:
 ```
 
 **Cluster Mapping** (automatically learned):
-- Cluster 0 (Low traffic) → Red signal (~12s)
-- Cluster 1 (Medium traffic) → Yellow signal (~18s)
-- Cluster 2 (High traffic) → Green signal (~25s)
+- Cluster 0 (Low traffic) → Green 15s → Yellow 4s → Red 8s
+- Cluster 1 (Medium traffic) → Green 20s → Yellow 4s → Red 8s
+- Cluster 2 (High traffic) → Green 30s → Yellow 4s → Red 8s
 
-The system automatically identifies which cluster represents which traffic level based on the average vehicle count in each cluster.
+The system automatically identifies which cluster represents which traffic level based on the average vehicle count in each cluster. Higher vehicle counts get longer green lights to clear traffic efficiently.
 
 ## 🎯 How It Works
 
@@ -226,12 +258,13 @@ The system automatically identifies which cluster represents which traffic level
 4. **Unsupervised Learning** - K-Means clustering adaptively learns traffic patterns:
    - Collects historical vehicle count data (100 observations)
    - Trains after 30 samples to identify 3 traffic density clusters (low, medium, high)
-   - Dynamically adjusts signal timing based on learned patterns
+   - Dynamically adjusts green light duration based on learned patterns
+   - More vehicles = longer green light to clear traffic efficiently
    - Adapts to changing traffic conditions over time
-5. **Signal Control** - ML-predicted timing with proper transitions:
-   - **Low traffic cluster**: Red signal (~12 seconds)
-   - **Medium traffic cluster**: Yellow signal (~18 seconds)  
-   - **High traffic cluster**: Green signal (~25 seconds)
+5. **Signal Control** - ML-predicted green light timing with proper transitions:
+   - **Red → Green**: Duration based on traffic cluster (15s-30s)
+   - **Green → Yellow**: Always 4 seconds (transition warning)
+   - **Yellow → Red**: 8 seconds (stop phase before next cycle)
 6. **Real-time Updates** - Frontend polls backend every 5 seconds for updates
 7. **Data Visualization** - Displays live graphs, statistics, and ML training status
 
@@ -268,6 +301,31 @@ The system automatically identifies which cluster represents which traffic level
 
 ## 🔧 Configuration
 
+### API Architecture
+
+The backend uses a clean REST API structure with `/api` prefix:
+
+```
+Backend API Endpoints (Flask - Port 5000):
+├── /video_feed              - Video stream (MJPEG)
+├── /api/traffic_status      - GET traffic light state & ML status
+├── /api/train_model         - POST manually trigger ML training
+├── /api/reset_model         - POST reset ML model & data
+├── /api/toggle_auto_train   - POST enable/disable auto-training
+└── /api/health              - GET health check
+
+Frontend (React - Port 3000 in dev):
+├── Vite dev server proxies /api and /video_feed to backend
+├── React Router handles /dashboard, /map routes
+└── All API calls use /api prefix to avoid routing conflicts
+```
+
+**Why `/api` prefix?**
+- Prevents routing conflicts between Flask and React Router
+- Clean separation of concerns (API vs frontend routes)
+- Allows proper SPA routing (refresh on /dashboard works correctly)
+- Industry-standard pattern for fullstack applications
+
 ### Backend Configuration (app.py)
 
 ```python
@@ -292,11 +350,22 @@ min_samples_for_training = 30  # Minimum observations before training starts
 You can customize the unsupervised learning behavior:
 
 ```python
-# In AdaptiveTrafficController class
-self.n_clusters = 3              # Number of traffic clusters (default: 3)
-self.history_size = 100          # Size of rolling history window
-self.min_samples_for_training = 30  # Samples needed before first training
+# In AdaptiveTrafficController class initialization
+traffic_controller = AdaptiveTrafficController(
+    n_clusters=3,                  # Number of traffic clusters (default: 3)
+    history_size=100,              # Size of rolling history window
+    min_samples_for_training=15    # Samples needed before first training (reduced for faster demos)
+)
+
+# Frame sampling for faster data collection
+self.sample_interval = 15  # Sample every 15 frames (~1 sample per second at 15fps)
 ```
+
+**Why min_samples=15?**
+- Allows faster training for demos and testing (~30 seconds)
+- Still provides enough data for meaningful clustering
+- Perfect for YouTube video demos or testing scenarios
+- For production, you can increase to 30-50 for more robust patterns
 
 ### Frontend Configuration (vite.config.js)
 

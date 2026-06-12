@@ -6,8 +6,14 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/video_feed': 'http://localhost:5000',
-      '/traffic_status': 'http://localhost:5000'
+      '/video_feed': {
+        target: 'http://localhost:5000',
+        changeOrigin: true
+      },
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true
+      }
     }
   }
 })
