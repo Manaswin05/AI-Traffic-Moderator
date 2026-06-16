@@ -6,12 +6,18 @@ services:
     plan: free
     branch: main
     buildCommand: chmod +x build.sh && ./build.sh
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120 --log-level info
+    # Optimized for 512MB RAM: single worker, single thread, aggressive memory management
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 1 --worker-class sync --timeout 120 --max-requests 100 --max-requests-jitter 10 --log-level error --preload
     healthCheckPath: /traffic_status
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
       - key: NODE_VERSION
-        value: 18.17.0
-      - key: VIDEO_SOURCE
-        value: demo_traffic.mp4
+        value: 20.18.0
+      # Memory optimization flags
+      - key: PYTORCH_CUDA_ALLOC_CONF
+        value: max_split_size_mb:128
+      - key: OMP_NUM_THREADS
+        value: 1
+      - key: MKL_NUM_THREADS
+        value: 1
