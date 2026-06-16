@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: ai-traffic-moderator
+    env: python
+    region: oregon
+    plan: free
+    branch: main
+    buildCommand: chmod +x build.sh && ./build.sh
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120 --log-level info
+    healthCheckPath: /traffic_status
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: NODE_VERSION
+        value: 18.17.0
+      - key: VIDEO_SOURCE
+        value: demo_traffic.mp4

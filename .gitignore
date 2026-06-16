@@ -49,13 +49,13 @@ Thumbs.db
 .env
 .env.local
 
-# Documentation files (keep only README)
-*.docx
-*.pptx
-*.xlsx
-*.pdf
-Docs/
+# ML Models (auto-downloaded by ultralytics)
+models/*.pt
+models/*.pth
+models/*.pkl
 
-# Deployment configs (not needed)
-Procfile
-render.yaml
+# Keep directory structure
+!models/.gitkeep
+
+# Deployment configs
+# (Removed - now tracked for Render deployment)

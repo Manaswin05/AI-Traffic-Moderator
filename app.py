@@ -5,6 +5,9 @@ import time
 import torch
 import numpy as np
 import os
+import pickle
+from sklearn.cluster import KMeans
+from collections import deque
 
 # Monkey patch torch.load to use weights_only=False
 original_load = torch.load
@@ -60,11 +63,186 @@ cap, is_video_file = init_camera()
 
 VEHICLE_CLASSES = {2: 'car', 3: 'motorcycle', 5: 'bus', 7: 'truck'}
 
+# ============================================
+# K-Means Traffic Classification System
+# Memory-optimized for Render free tier (512MB)
+# ============================================
+
+class TrafficKMeansOptimized:
+    """Memory-efficient K-means for traffic classification"""
+    
+    def __init__(self):
+        # Memory-optimized parameters for Render free tier
+        self.MIN_SAMPLES = 20              # Start with minimal data
+        self.RETRAIN_INTERVAL = 150        # Less frequent retraining
+        self.MAX_DATA_SIZE = 200           # Small rolling window (~1.6KB)
+        
+        # Use deque for memory efficiency (automatic size limit)
+        self.training_data = deque(maxlen=self.MAX_DATA_SIZE)
+        
+        # Model state
+        self.model = None
+        self.cluster_centers = None
+        self.samples_since_last_train = 0
+        self.last_train_time = time.time()
+        self.is_trained = False
+        
+        # Pre-seed with realistic traffic patterns for immediate operation
+        # This allows K-means to work from the start without waiting
+        initial_patterns = [
+            1, 2, 2, 3, 3, 4, 5,           # Low traffic
+            7, 8, 9, 10, 11, 12,           # Medium traffic  
+            15, 17, 18, 20, 22, 25         # High traffic
+        ]
+        for count in initial_patterns:
+            self.training_data.append(count)
+        
+        # Try to load existing model
+        self.load_model()
+        
+        # If no saved model, train with seed data
+        if not self.is_trained:
+            self.train()
+    
+    def add_sample(self, vehicle_count):
+        """Add new sample and intelligently decide on retraining"""
+        self.training_data.append(vehicle_count)
+        self.samples_since_last_train += 1
+        
+        # Decision logic for retraining
+        should_retrain = False
+        
+        # Periodic retraining after enough new data
+        if self.samples_since_last_train >= self.RETRAIN_INTERVAL:
+            should_retrain = True
+        
+        # Time-based safety net (retrain every 3 hours minimum)
+        elif time.time() - self.last_train_time > 10800:
+            should_retrain = True
+        
+        if should_retrain:
+            self.train()
+            self.save_model()
+    
+    def train(self):
+        """Train K-means model - memory efficient"""
+        if len(self.training_data) < self.MIN_SAMPLES:
+            return
+        
+        try:
+            # Convert deque to numpy array (shape: n_samples, 1)
+            X = np.array(list(self.training_data)).reshape(-1, 1)
+            
+            # Train K-means with 3 clusters (low, medium, high)
+            self.model = KMeans(
+                n_clusters=3, 
+                random_state=42,
+                n_init=10,           # Reduced from default for speed
+                max_iter=100         # Reduced from 300 for speed
+            )
+            self.model.fit(X)
+            
+            # Sort cluster centers to ensure: 0=low, 1=medium, 2=high
+            centers = self.model.cluster_centers_.flatten()
+            sorted_indices = np.argsort(centers)
+            
+            # Create mapping: old_label -> new_label
+            self.label_mapping = {old: new for new, old in enumerate(sorted_indices)}
+            self.cluster_centers = np.sort(centers)
+            
+            self.samples_since_last_train = 0
+            self.last_train_time = time.time()
+            self.is_trained = True
+            
+            print(f"✓ K-means trained | Centers: {self.cluster_centers.round(1)}")
+            
+        except Exception as e:
+            print(f"✗ K-means training error: {e}")
+    
+    def classify(self, vehicle_count):
+        """Classify traffic density - returns (cluster, density_label)"""
+        if not self.is_trained or self.model is None:
+            # Fallback to simple rules if model not ready
+            return self._fallback_classification(vehicle_count)
+        
+        try:
+            # Predict cluster
+            cluster = self.model.predict([[vehicle_count]])[0]
+            
+            # Remap to sorted cluster (0=low, 1=medium, 2=high)
+            cluster = self.label_mapping[cluster]
+            
+            # Map to density label
+            density_labels = {0: "LOW", 1: "MEDIUM", 2: "HIGH"}
+            density = density_labels[cluster]
+            
+            return cluster, density
+            
+        except Exception as e:
+            print(f"✗ Classification error: {e}")
+            return self._fallback_classification(vehicle_count)
+    
+    def _fallback_classification(self, vehicle_count):
+        """Simple rule-based fallback when model isn't ready"""
+        if vehicle_count <= 5:
+            return 0, "LOW"
+        elif vehicle_count <= 12:
+            return 1, "MEDIUM"
+        else:
+            return 2, "HIGH"
+    
+    def save_model(self):
+        """Save model to disk"""
+        try:
+            os.makedirs('models', exist_ok=True)
+            model_data = {
+                'model': self.model,
+                'cluster_centers': self.cluster_centers,
+                'label_mapping': self.label_mapping,
+                'training_data': list(self.training_data)
+            }
+            with open('models/traffic_kmeans.pkl', 'wb') as f:
+                pickle.dump(model_data, f)
+            print("✓ Model saved successfully")
+        except Exception as e:
+            print(f"✗ Model save error: {e}")
+    
+    def load_model(self):
+        """Load model from disk if exists"""
+        try:
+            with open('models/traffic_kmeans.pkl', 'rb') as f:
+                model_data = pickle.load(f)
+                self.model = model_data['model']
+                self.cluster_centers = model_data['cluster_centers']
+                self.label_mapping = model_data['label_mapping']
+                self.is_trained = True
+                print(f"✓ Model loaded | Centers: {self.cluster_centers.round(1)}")
+        except FileNotFoundError:
+            print("○ No saved model found - will train from seed data")
+        except Exception as e:
+            print(f"✗ Model load error: {e}")
+    
+    def get_stats(self):
+        """Get model statistics"""
+        return {
+            "trained": self.is_trained,
+            "samples_collected": len(self.training_data),
+            "cluster_centers": self.cluster_centers.tolist() if self.cluster_centers is not None else None,
+            "samples_since_retrain": self.samples_since_last_train,
+            "next_retrain_in": self.RETRAIN_INTERVAL - self.samples_since_last_train
+        }
+
+
+# Initialize K-means system
+kmeans_system = TrafficKMeansOptimized()
+
 traffic_state = {
     "signal": "red",
     "timer": 15,
     "last_change": time.time(),
-    "vehicle_count": 0
+    "vehicle_count": 0,
+    "traffic_density": "LOW",
+    "cluster": 0
 }
 
 
@@ -153,39 +331,58 @@ def process_frame():
             cv2.putText(frame, label, (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-        # Traffic light logic
+        # === K-MEANS TRAFFIC CLASSIFICATION ===
+        # Add sample for continuous learning
+        kmeans_system.add_sample(vehicle_count)
+        
+        # Classify current traffic density
+        cluster, density = kmeans_system.classify(vehicle_count)
+        
+        # Update traffic state
+        traffic_state["vehicle_count"] = vehicle_count
+        traffic_state["traffic_density"] = density
+        traffic_state["cluster"] = cluster
+        
+        # === AI-DRIVEN SIGNAL LOGIC ===
         current_time = time.time()
         elapsed_time = current_time - traffic_state["last_change"]
 
         if elapsed_time >= traffic_state["timer"]:
             if traffic_state["signal"] == "red":
-                if vehicle_count >= 10:
+                # Use AI classification instead of fixed thresholds
+                if density == "HIGH":
                     traffic_state["signal"] = "green"
-                    traffic_state["timer"] = 15
-                elif vehicle_count >= 5:
+                    traffic_state["timer"] = 20  # Longer green for high traffic
+                elif density == "MEDIUM":
                     traffic_state["signal"] = "yellow"
-                    traffic_state["timer"] = 10
-                else:
+                    traffic_state["timer"] = 8
+                else:  # LOW
                     traffic_state["signal"] = "red"
-                    traffic_state["timer"] = 15
+                    traffic_state["timer"] = 10  # Short red for low traffic
             elif traffic_state["signal"] == "green":
                 traffic_state["signal"] = "yellow"
                 traffic_state["timer"] = 4
             elif traffic_state["signal"] == "yellow":
                 traffic_state["signal"] = "red"
-                traffic_state["timer"] = 15
+                traffic_state["timer"] = 10
 
             traffic_state["last_change"] = current_time
 
-        traffic_state["vehicle_count"] = vehicle_count
-
-        # Overlay text on frame
+        # Overlay text on frame with AI info
         signal_colors = {"red": (0, 0, 255), "yellow": (0, 255, 255), "green": (0, 255, 0)}
         sig_color = signal_colors.get(traffic_state["signal"], (255, 255, 255))
+        
+        density_colors = {"LOW": (0, 255, 0), "MEDIUM": (0, 255, 255), "HIGH": (0, 0, 255)}
+        dens_color = density_colors.get(density, (255, 255, 255))
+        
         cv2.putText(frame, f"Signal: {traffic_state['signal'].upper()}",
                     (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, sig_color, 2)
         cv2.putText(frame, f"Vehicles: {vehicle_count}",
                     (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+        cv2.putText(frame, f"AI Density: {density}",
+                    (20, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.8, dens_color, 2)
+        cv2.putText(frame, f"Cluster: {cluster}",
+                    (20, 165), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
 
         _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
         yield (b'--frame\r\n'
@@ -206,9 +403,33 @@ def video_feed():
 
 @app.route('/traffic_status')
 def traffic_status():
+    stats = kmeans_system.get_stats()
     return jsonify({
         "traffic_light": traffic_state["signal"],
-        "vehicle_count": traffic_state["vehicle_count"]
+        "vehicle_count": traffic_state["vehicle_count"],
+        "traffic_density": traffic_state["traffic_density"],
+        "cluster": traffic_state["cluster"],
+        "model_trained": stats["trained"],
+        "samples_collected": stats["samples_collected"],
+        "cluster_centers": stats["cluster_centers"]
+    })
+
+
+@app.route('/model_info')
+def model_info():
+    """Get detailed K-means model information"""
+    return jsonify(kmeans_system.get_stats())
+
+
+@app.route('/train_model', methods=['POST'])
+def train_model():
+    """Manually trigger model retraining"""
+    kmeans_system.train()
+    kmeans_system.save_model()
+    return jsonify({
+        "status": "success",
+        "message": "Model retrained successfully",
+        "stats": kmeans_system.get_stats()
     })
 
 
