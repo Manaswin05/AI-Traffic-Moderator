@@ -404,6 +404,7 @@ def process_frame():
 
     # Always have a valid source (synthetic or real camera)
     if cap is None:
+        print("ERROR: No video source initialized")
         while True:
             frame_bytes = make_placeholder_frame("Initializing video source...")
             yield (b'--frame\r\n'
@@ -411,111 +412,121 @@ def process_frame():
             time.sleep(1)
         return
 
+    print("Starting video feed stream...")
     consecutive_failures = 0
 
     while True:
-        ret, frame = cap.read()
+        try:
+            ret, frame = cap.read()
 
-        if not ret or frame is None or frame.size == 0:
-            consecutive_failures += 1
+            if not ret or frame is None or frame.size == 0:
+                consecutive_failures += 1
+                print(f"Frame read failed (attempt {consecutive_failures}/10)")
 
-            if consecutive_failures >= 10:
-                frame_bytes = make_placeholder_frame("Video source error")
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-                time.sleep(1)
-                consecutive_failures = 0
-            else:
-                time.sleep(0.05)
-            continue
+                if consecutive_failures >= 10:
+                    frame_bytes = make_placeholder_frame("Video source error")
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                    time.sleep(1)
+                    consecutive_failures = 0
+                else:
+                    time.sleep(0.05)
+                continue
 
-        consecutive_failures = 0
-        frame_counter += 1
-        
-        # Process every 2nd frame to reduce CPU/memory load (skip frames)
-        if frame_counter % 2 != 0:
-            time.sleep(0.033)  # ~30fps timing
-            continue
+            consecutive_failures = 0
+            frame_counter += 1
+            
+            # Process every 2nd frame to reduce CPU/memory load (skip frames)
+            if frame_counter % 2 != 0:
+                time.sleep(0.033)  # ~30fps timing
+                continue
 
-        vehicles = detect_vehicles(frame)
-        vehicle_count = len(vehicles)
+            vehicles = detect_vehicles(frame)
+            vehicle_count = len(vehicles)
 
-        # Draw bounding boxes (only for detected vehicles to save processing)
-        for class_id, bbox in vehicles:
-            x1, y1, x2, y2 = bbox
-            label = VEHICLE_CLASSES[class_id]
-            color = (0, 255, 0)
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(frame, label, (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            # Draw bounding boxes (only for detected vehicles to save processing)
+            for class_id, bbox in vehicles:
+                x1, y1, x2, y2 = bbox
+                label = VEHICLE_CLASSES[class_id]
+                color = (0, 255, 0)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(frame, label, (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-        # === K-MEANS TRAFFIC CLASSIFICATION ===
-        # Add sample for continuous learning
-        kmeans_system.add_sample(vehicle_count)
-        
-        # Classify current traffic density
-        cluster, density = kmeans_system.classify(vehicle_count)
-        
-        # Update traffic state
-        traffic_state["vehicle_count"] = vehicle_count
-        traffic_state["traffic_density"] = density
-        traffic_state["cluster"] = cluster
-        
-        # === AI-DRIVEN SIGNAL LOGIC ===
-        current_time = time.time()
-        elapsed_time = current_time - traffic_state["last_change"]
+            # === K-MEANS TRAFFIC CLASSIFICATION ===
+            # Add sample for continuous learning
+            kmeans_system.add_sample(vehicle_count)
+            
+            # Classify current traffic density
+            cluster, density = kmeans_system.classify(vehicle_count)
+            
+            # Update traffic state
+            traffic_state["vehicle_count"] = vehicle_count
+            traffic_state["traffic_density"] = density
+            traffic_state["cluster"] = cluster
+            
+            # === AI-DRIVEN SIGNAL LOGIC ===
+            current_time = time.time()
+            elapsed_time = current_time - traffic_state["last_change"]
 
-        if elapsed_time >= traffic_state["timer"]:
-            if traffic_state["signal"] == "red":
-                # Use AI classification instead of fixed thresholds
-                if density == "HIGH":
-                    traffic_state["signal"] = "green"
-                    traffic_state["timer"] = 20  # Longer green for high traffic
-                elif density == "MEDIUM":
+            if elapsed_time >= traffic_state["timer"]:
+                if traffic_state["signal"] == "red":
+                    # Use AI classification instead of fixed thresholds
+                    if density == "HIGH":
+                        traffic_state["signal"] = "green"
+                        traffic_state["timer"] = 20  # Longer green for high traffic
+                    elif density == "MEDIUM":
+                        traffic_state["signal"] = "yellow"
+                        traffic_state["timer"] = 8
+                    else:  # LOW
+                        traffic_state["signal"] = "red"
+                        traffic_state["timer"] = 10  # Short red for low traffic
+                elif traffic_state["signal"] == "green":
                     traffic_state["signal"] = "yellow"
-                    traffic_state["timer"] = 8
-                else:  # LOW
+                    traffic_state["timer"] = 4
+                elif traffic_state["signal"] == "yellow":
                     traffic_state["signal"] = "red"
-                    traffic_state["timer"] = 10  # Short red for low traffic
-            elif traffic_state["signal"] == "green":
-                traffic_state["signal"] = "yellow"
-                traffic_state["timer"] = 4
-            elif traffic_state["signal"] == "yellow":
-                traffic_state["signal"] = "red"
-                traffic_state["timer"] = 10
+                    traffic_state["timer"] = 10
 
-            traffic_state["last_change"] = current_time
+                traffic_state["last_change"] = current_time
 
-        # Overlay text on frame with AI info
-        signal_colors = {"red": (0, 0, 255), "yellow": (0, 255, 255), "green": (0, 255, 0)}
-        sig_color = signal_colors.get(traffic_state["signal"], (255, 255, 255))
-        
-        density_colors = {"LOW": (0, 255, 0), "MEDIUM": (0, 255, 255), "HIGH": (0, 0, 255)}
-        dens_color = density_colors.get(density, (255, 255, 255))
-        
-        cv2.putText(frame, f"Signal: {traffic_state['signal'].upper()}",
-                    (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, sig_color, 2)
-        cv2.putText(frame, f"Vehicles: {vehicle_count}",
-                    (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-        cv2.putText(frame, f"Density: {density}",
-                    (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, dens_color, 2)
+            # Overlay text on frame with AI info
+            signal_colors = {"red": (0, 0, 255), "yellow": (0, 255, 255), "green": (0, 255, 0)}
+            sig_color = signal_colors.get(traffic_state["signal"], (255, 255, 255))
+            
+            density_colors = {"LOW": (0, 255, 0), "MEDIUM": (0, 255, 255), "HIGH": (0, 0, 255)}
+            dens_color = density_colors.get(density, (255, 255, 255))
+            
+            cv2.putText(frame, f"Signal: {traffic_state['signal'].upper()}",
+                        (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, sig_color, 2)
+            cv2.putText(frame, f"Vehicles: {vehicle_count}",
+                        (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+            cv2.putText(frame, f"Density: {density}",
+                        (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, dens_color, 2)
 
-        # Lower JPEG quality to reduce bandwidth and memory
-        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
-        frame_bytes = buffer.tobytes()
-        
-        # Clear buffer to free memory
-        del buffer
-        
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            # Lower JPEG quality to reduce bandwidth and memory
+            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
+            frame_bytes = buffer.tobytes()
+            
+            # Clear buffer to free memory
+            del buffer
+            
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
-        # Periodic garbage collection every 50 frames
-        if frame_counter % 50 == 0:
-            gc.collect()
+            # Periodic garbage collection every 50 frames
+            if frame_counter % 50 == 0:
+                gc.collect()
 
-        # Throttle to ~10 fps to reduce CPU/memory on cloud (skip every other frame)
-        time.sleep(0.1)
+            # Throttle to ~10 fps to reduce CPU/memory on cloud (skip every other frame)
+            time.sleep(0.1)
+            
+        except Exception as e:
+            print(f"Error in video processing: {e}")
+            frame_bytes = make_placeholder_frame(f"Error: {str(e)}")
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            time.sleep(1)
 
 
 # ---------------------------
