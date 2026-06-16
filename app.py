@@ -6,8 +6,24 @@ import torch
 import numpy as np
 import os
 import pickle
+import gc
 from sklearn.cluster import KMeans
 from collections import deque
+
+# ============================================
+# MEMORY OPTIMIZATION FOR 512MB RAM
+# ============================================
+
+# Force CPU-only mode to save GPU memory
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
+# Limit OpenMP threads for CPU inference
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+
+# PyTorch memory optimization
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
 
 # Monkey patch torch.load to use weights_only=False
 original_load = torch.load
@@ -23,41 +39,131 @@ STATIC_FOLDER = os.path.join(os.path.dirname(__file__), 'dist')
 app = Flask(__name__, static_folder=STATIC_FOLDER, static_url_path='')
 CORS(app)
 
+# Load YOLO model with aggressive memory optimization
+print("Loading YOLO model (optimized for 512MB RAM)...")
 model = YOLO("models/yolov8n.pt")
+model.overrides['verbose'] = False  # Disable verbose output
+model.overrides['imgsz'] = 320      # Smaller input size (default 640)
+model.overrides['half'] = False     # Don't use FP16 on CPU
+model.overrides['device'] = 'cpu'   # Force CPU
+print(f"✓ YOLO loaded | Input size: 320x320 | Device: CPU")
 
 # ---------------------------
 # Camera / Video Initialization
 # ---------------------------
+class SyntheticVideoGenerator:
+    """Generate synthetic traffic video for cloud deployment without video files"""
+    
+    def __init__(self, width=480, height=360):
+        self.width = width
+        self.height = height
+        self.frame_count = 0
+        self.vehicle_positions = []
+        self.max_vehicles = 25
+        
+        # Initialize some random vehicles
+        for _ in range(5):
+            self.vehicle_positions.append({
+                'x': np.random.randint(50, width - 100),
+                'y': np.random.randint(50, height - 100),
+                'vx': np.random.randint(-2, 3),
+                'vy': np.random.randint(-2, 3),
+                'type': np.random.choice([2, 3, 5, 7])  # car, motorcycle, bus, truck
+            })
+        
+        print("SUCCESS: Using synthetic video generator (cloud mode)")
+    
+    def read(self):
+        """Generate a frame with moving vehicles"""
+        # Create base frame (road-like background)
+        frame = np.ones((self.height, self.width, 3), dtype=np.uint8) * 40  # Dark gray
+        
+        # Draw road lines
+        for i in range(0, self.width, 60):
+            cv2.line(frame, (i, 0), (i, self.height), (80, 80, 80), 2)
+        for i in range(0, self.height, 60):
+            cv2.line(frame, (0, i), (self.width, i), (80, 80, 80), 2)
+        
+        # Draw center dividing line
+        for i in range(0, self.height, 40):
+            cv2.rectangle(frame, (self.width//2 - 5, i), (self.width//2 + 5, i + 20), (200, 200, 200), -1)
+        
+        # Update and draw vehicles
+        for vehicle in self.vehicle_positions:
+            # Update position
+            vehicle['x'] += vehicle['vx']
+            vehicle['y'] += vehicle['vy']
+            
+            # Bounce off edges
+            if vehicle['x'] < 20 or vehicle['x'] > self.width - 60:
+                vehicle['vx'] *= -1
+            if vehicle['y'] < 20 or vehicle['y'] > self.height - 60:
+                vehicle['vy'] *= -1
+            
+            # Draw vehicle as a colored rectangle
+            color_map = {2: (0, 255, 0), 3: (255, 255, 0), 5: (0, 0, 255), 7: (255, 0, 0)}
+            color = color_map.get(vehicle['type'], (255, 255, 255))
+            
+            x, y = int(vehicle['x']), int(vehicle['y'])
+            size = 40 if vehicle['type'] in [5, 7] else 30  # Larger for bus/truck
+            cv2.rectangle(frame, (x, y), (x + size, y + size), color, -1)
+            cv2.rectangle(frame, (x, y), (x + size, y + size), (255, 255, 255), 2)
+        
+        # Randomly add or remove vehicles
+        self.frame_count += 1
+        if self.frame_count % 60 == 0:  # Every 60 frames
+            if len(self.vehicle_positions) < self.max_vehicles and np.random.random() > 0.5:
+                # Add new vehicle
+                self.vehicle_positions.append({
+                    'x': np.random.randint(50, self.width - 100),
+                    'y': np.random.randint(50, self.height - 100),
+                    'vx': np.random.randint(-2, 3),
+                    'vy': np.random.randint(-2, 3),
+                    'type': np.random.choice([2, 3, 5, 7])
+                })
+            elif len(self.vehicle_positions) > 2 and np.random.random() > 0.7:
+                # Remove a vehicle
+                self.vehicle_positions.pop(np.random.randint(0, len(self.vehicle_positions)))
+        
+        return True, frame
+    
+    def isOpened(self):
+        return True
+    
+    def release(self):
+        pass
+    
+    def set(self, prop, value):
+        pass
+
+
 def init_camera():
-    # 1. Try a demo video file first (good for cloud/Render deployment)
-    video_path = os.environ.get("VIDEO_SOURCE", "demo_traffic.mp4")
-    if os.path.exists(video_path):
-        cap = cv2.VideoCapture(video_path)
-        if cap.isOpened():
-            print(f"SUCCESS: Using video file: {video_path}")
-            return cap, True  # (capture, is_video_file)
-
-    # 2. Try physical webcam (works locally)
+    # 1. Try physical webcam (works locally)
     for index in [0, 1, 2]:
-        cam = cv2.VideoCapture(index)
-        if cam.isOpened():
-            cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            cam.set(cv2.CAP_PROP_FPS, 30)
+        try:
+            cam = cv2.VideoCapture(index)
+            if cam.isOpened():
+                cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                cam.set(cv2.CAP_PROP_FRAME_WIDTH, 480)   # Lower resolution
+                cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
+                cam.set(cv2.CAP_PROP_FPS, 15)            # Lower FPS
 
-            for _ in range(5):
-                cam.read()
+                for _ in range(5):
+                    cam.read()
 
-            ret, frame = cam.read()
-            if ret and frame is not None and frame.size > 0:
-                print(f"SUCCESS: Camera {index} opened. Shape: {frame.shape}")
-                return cam, False  # (capture, is_video_file)
-            else:
-                cam.release()
+                ret, frame = cam.read()
+                if ret and frame is not None and frame.size > 0:
+                    print(f"SUCCESS: Camera {index} opened. Shape: {frame.shape}")
+                    return cam, False  # (capture, is_video_file)
+                else:
+                    cam.release()
+        except Exception as e:
+            print(f"Camera {index} failed: {e}")
+            continue
 
-    print("WARNING: No camera or video file found. Will stream placeholder frames.")
-    return None, False
+    # 2. Fallback to synthetic video generator (cloud/headless mode)
+    print("INFO: No physical camera found. Using synthetic video generator (cloud mode).")
+    return SyntheticVideoGenerator(), False
 
 cap, is_video_file = init_camera()
 
@@ -69,13 +175,13 @@ VEHICLE_CLASSES = {2: 'car', 3: 'motorcycle', 5: 'bus', 7: 'truck'}
 # ============================================
 
 class TrafficKMeansOptimized:
-    """Memory-efficient K-means for traffic classification"""
+    """Memory-efficient K-means for traffic classification - Optimized for 512MB RAM"""
     
     def __init__(self):
-        # Memory-optimized parameters for Render free tier
-        self.MIN_SAMPLES = 20              # Start with minimal data
-        self.RETRAIN_INTERVAL = 150        # Less frequent retraining
-        self.MAX_DATA_SIZE = 200           # Small rolling window (~1.6KB)
+        # Ultra-aggressive memory optimization for Render free tier
+        self.MIN_SAMPLES = 15              # Minimal data to start
+        self.RETRAIN_INTERVAL = 200        # Less frequent retraining
+        self.MAX_DATA_SIZE = 100           # Smaller rolling window (~800 bytes)
         
         # Use deque for memory efficiency (automatic size limit)
         self.training_data = deque(maxlen=self.MAX_DATA_SIZE)
@@ -88,12 +194,7 @@ class TrafficKMeansOptimized:
         self.is_trained = False
         
         # Pre-seed with realistic traffic patterns for immediate operation
-        # This allows K-means to work from the start without waiting
-        initial_patterns = [
-            1, 2, 2, 3, 3, 4, 5,           # Low traffic
-            7, 8, 9, 10, 11, 12,           # Medium traffic  
-            15, 17, 18, 20, 22, 25         # High traffic
-        ]
+        initial_patterns = [1, 2, 3, 4, 5, 8, 10, 12, 15, 18, 20, 25]
         for count in initial_patterns:
             self.training_data.append(count)
         
@@ -131,14 +232,14 @@ class TrafficKMeansOptimized:
         
         try:
             # Convert deque to numpy array (shape: n_samples, 1)
-            X = np.array(list(self.training_data)).reshape(-1, 1)
+            X = np.array(list(self.training_data), dtype=np.float32).reshape(-1, 1)
             
             # Train K-means with 3 clusters (low, medium, high)
             self.model = KMeans(
                 n_clusters=3, 
                 random_state=42,
-                n_init=10,           # Reduced from default for speed
-                max_iter=100         # Reduced from 300 for speed
+                n_init=5,            # Reduced from 10 for speed/memory
+                max_iter=50          # Reduced from 100 for speed/memory
             )
             self.model.fit(X)
             
@@ -155,6 +256,9 @@ class TrafficKMeansOptimized:
             self.is_trained = True
             
             print(f"✓ K-means trained | Centers: {self.cluster_centers.round(1)}")
+            
+            # Force garbage collection after training
+            gc.collect()
             
         except Exception as e:
             print(f"✗ K-means training error: {e}")
@@ -247,11 +351,19 @@ traffic_state = {
 
 
 # ---------------------------
-# Vehicle Detection Function
+# Vehicle Detection Function (Memory Optimized)
 # ---------------------------
 def detect_vehicles(frame):
+    # Resize frame for faster inference and lower memory usage
+    h, w = frame.shape[:2]
+    if w > 480:
+        scale = 480 / w
+        frame = cv2.resize(frame, (480, int(h * scale)))
+    
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    results = model(rgb_frame)[0]
+    
+    # Run inference with memory optimization
+    results = model(rgb_frame, verbose=False, imgsz=320)[0]
     vehicles = []
 
     for box in results.boxes:
@@ -267,29 +379,33 @@ def detect_vehicles(frame):
 # Error / Placeholder Frame
 # ---------------------------
 def make_placeholder_frame(message="No camera available"):
-    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    # Smaller frame size to save memory
+    frame = np.zeros((360, 480, 3), dtype=np.uint8)
     # Dark background with grid lines for visual interest
-    for i in range(0, 640, 40):
-        cv2.line(frame, (i, 0), (i, 480), (20, 20, 20), 1)
     for i in range(0, 480, 40):
-        cv2.line(frame, (0, i), (640, i), (20, 20, 20), 1)
-    cv2.putText(frame, message, (80, 220),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 180, 255), 2)
-    cv2.putText(frame, "AI Traffic Control System", (100, 270),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 1)
-    _, buffer = cv2.imencode('.jpg', frame)
+        cv2.line(frame, (i, 0), (i, 360), (20, 20, 20), 1)
+    for i in range(0, 360, 40):
+        cv2.line(frame, (0, i), (480, i), (20, 20, 20), 1)
+    cv2.putText(frame, message, (60, 165),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 180, 255), 2)
+    cv2.putText(frame, "AI Traffic Control System", (70, 200),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+    _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
     return buffer.tobytes()
 
 
 # ---------------------------
-# Video Processing Generator
+# Video Processing Generator (Memory Optimized)
 # ---------------------------
-def process_frame():
-    global cap, is_video_file
+frame_counter = 0  # Global counter for frame skipping
 
+def process_frame():
+    global cap, is_video_file, frame_counter
+
+    # Always have a valid source (synthetic or real camera)
     if cap is None:
         while True:
-            frame_bytes = make_placeholder_frame("No camera / video source found")
+            frame_bytes = make_placeholder_frame("Initializing video source...")
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
             time.sleep(1)
@@ -300,16 +416,11 @@ def process_frame():
     while True:
         ret, frame = cap.read()
 
-        # Loop video file when it ends
-        if not ret and is_video_file:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            ret, frame = cap.read()
-
         if not ret or frame is None or frame.size == 0:
             consecutive_failures += 1
 
             if consecutive_failures >= 10:
-                frame_bytes = make_placeholder_frame("Camera disconnected")
+                frame_bytes = make_placeholder_frame("Video source error")
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
                 time.sleep(1)
@@ -319,10 +430,17 @@ def process_frame():
             continue
 
         consecutive_failures = 0
+        frame_counter += 1
+        
+        # Process every 2nd frame to reduce CPU/memory load (skip frames)
+        if frame_counter % 2 != 0:
+            time.sleep(0.033)  # ~30fps timing
+            continue
 
         vehicles = detect_vehicles(frame)
         vehicle_count = len(vehicles)
 
+        # Draw bounding boxes (only for detected vehicles to save processing)
         for class_id, bbox in vehicles:
             x1, y1, x2, y2 = bbox
             label = VEHICLE_CLASSES[class_id]
@@ -376,20 +494,28 @@ def process_frame():
         dens_color = density_colors.get(density, (255, 255, 255))
         
         cv2.putText(frame, f"Signal: {traffic_state['signal'].upper()}",
-                    (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, sig_color, 2)
+                    (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, sig_color, 2)
         cv2.putText(frame, f"Vehicles: {vehicle_count}",
-                    (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-        cv2.putText(frame, f"AI Density: {density}",
-                    (20, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.8, dens_color, 2)
-        cv2.putText(frame, f"Cluster: {cluster}",
-                    (20, 165), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
+                    (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+        cv2.putText(frame, f"Density: {density}",
+                    (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, dens_color, 2)
 
-        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        # Lower JPEG quality to reduce bandwidth and memory
+        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
+        frame_bytes = buffer.tobytes()
+        
+        # Clear buffer to free memory
+        del buffer
+        
         yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
-        # Throttle to ~15 fps to reduce CPU on cloud
-        time.sleep(0.067)
+        # Periodic garbage collection every 50 frames
+        if frame_counter % 50 == 0:
+            gc.collect()
+
+        # Throttle to ~10 fps to reduce CPU/memory on cloud (skip every other frame)
+        time.sleep(0.1)
 
 
 # ---------------------------
@@ -450,9 +576,15 @@ def serve_react(path):
 if __name__ == "__main__":
     print("=" * 50)
     print("AI Traffic Control System - Starting")
+    print("Memory Optimized for 512MB RAM")
     print("=" * 50)
-    print(f"Camera/Video status: {'Ready' if cap is not None else 'NOT FOUND (placeholder mode)'}")
-    print("Flask server: http://localhost:5000")
+    
+    video_source = "Synthetic Video (Cloud Mode)" if isinstance(cap, SyntheticVideoGenerator) else "Physical Camera"
+    print(f"Video Source: {video_source}")
+    print(f"YOLO Mode: CPU-only (320x320)")
+    print(f"Resolution: 480x360")
+    print(f"Frame Rate: ~10 fps")
+    print("Flask server: Starting...")
     print("=" * 50)
 
     try:

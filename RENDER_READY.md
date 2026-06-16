@@ -41,6 +41,12 @@
 ```bash
 chmod +x build.sh && ./build.sh
 ```
+*This builds React frontend (npm), then installs Python deps*
+
+**Alternative (without script):**
+```bash
+npm install && npm run build && pip install -r requirements.txt
+```
 
 **Start Command:**
 ```bash
@@ -109,6 +115,11 @@ Status:       ✅ FAST
 
 ### Build Time
 ```
+Node.js install:  1-2 minutes
+React build:      1 minute
+Python install:   3-4 minutes
+YOLO download:    30 seconds
+──────────────────────────────
 Total:  5-7 minutes
 Status: ✅ NORMAL
 ```
