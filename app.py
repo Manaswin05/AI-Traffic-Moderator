@@ -538,6 +538,47 @@ def video_feed():
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
+@app.route('/video_feed_raw')
+def video_feed_raw():
+    """Raw video feed without YOLO processing for debugging"""
+    def generate_raw():
+        print("Starting RAW video feed (no YOLO)...")
+        frame_count = 0
+        while True:
+            try:
+                if cap is None:
+                    frame_bytes = make_placeholder_frame("No video source")
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                    time.sleep(1)
+                    continue
+                
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    frame_bytes = make_placeholder_frame("Frame read error")
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                    time.sleep(0.1)
+                    continue
+                
+                # Just encode and send without YOLO
+                frame_count += 1
+                cv2.putText(frame, f"Frame: {frame_count}", (20, 40),
+                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                
+                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+                time.sleep(0.1)
+                
+            except Exception as e:
+                print(f"Raw video error: {e}")
+                time.sleep(1)
+    
+    return Response(generate_raw(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
 @app.route('/test_video')
 def test_video():
     """Test endpoint to verify video source is working"""
