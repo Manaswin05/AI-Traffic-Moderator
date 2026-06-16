@@ -179,7 +179,10 @@ def detect_vehicles(frame):
     """
     Run ONNX inference on a single frame.
     Returns list of (class_id, (x1, y1, x2, y2)) for detected vehicles.
-    YOLOv8 ONNX output shape: (1, 84, num_boxes) — [cx, cy, w, h, cls0..cls79]
+
+    YOLOv8 ONNX output shape: (1, 84, num_boxes)
+      - rows 0-3 : cx, cy, w, h  in INPUT_SIZE pixel space (0–320)
+      - rows 4-83: class confidence scores (no separate objectness)
     """
     h_orig, w_orig = frame.shape[:2]
 
@@ -193,17 +196,20 @@ def detect_vehicles(frame):
     outputs = onnx_session.run(None, {input_name: inp})
 
     # outputs[0]: shape (1, 84, num_boxes)
-    predictions = outputs[0][0]          # shape (84, num_boxes)
-    predictions = predictions.T          # shape (num_boxes, 84)
+    predictions = outputs[0][0]   # → (84, num_boxes)
+    predictions = predictions.T   # → (num_boxes, 84)
 
     vehicles = []
-    conf_threshold = 0.35
+    conf_threshold = 0.30         # slightly lower for better recall
+
+    # Scale from model input space (320×320) back to original frame size
     x_scale = w_orig / INPUT_SIZE
     y_scale = h_orig / INPUT_SIZE
 
     for pred in predictions:
-        cx, cy, w, h = pred[0], pred[1], pred[2], pred[3]
-        class_scores = pred[4:]          # 80 COCO classes
+        # cx, cy, w, h are in INPUT_SIZE pixel units (e.g. 0–320)
+        cx, cy, bw, bh = pred[0], pred[1], pred[2], pred[3]
+        class_scores = pred[4:]          # 80 COCO class scores
         class_id = int(np.argmax(class_scores))
         confidence = float(class_scores[class_id])
 
@@ -212,18 +218,37 @@ def detect_vehicles(frame):
         if class_id not in VEHICLE_CLASSES:
             continue
 
-        # Convert from normalized center format to pixel corner format
-        x1 = int((cx - w / 2) * x_scale)
-        y1 = int((cy - h / 2) * y_scale)
-        x2 = int((cx + w / 2) * x_scale)
-        y2 = int((cy + h / 2) * y_scale)
+        # Convert center+size → corners, then scale to original frame
+        x1 = int((cx - bw / 2) * x_scale)
+        y1 = int((cy - bh / 2) * y_scale)
+        x2 = int((cx + bw / 2) * x_scale)
+        y2 = int((cy + bh / 2) * y_scale)
 
         # Clamp to frame bounds
         x1, y1 = max(0, x1), max(0, y1)
         x2, y2 = min(w_orig, x2), min(h_orig, y2)
 
+        # Skip degenerate boxes
+        if x2 <= x1 or y2 <= y1:
+            continue
+
         vehicles.append((class_id, (x1, y1, x2, y2)))
 
+    return vehicles
+
+
+def detect_vehicles_synthetic(cap_source):
+    """
+    For synthetic video (no real camera): return vehicle positions directly
+    from the generator instead of running ONNX inference.
+    ONNX/YOLO is trained on real photos and cannot detect drawn rectangles.
+    Returns list of (class_id, (x1, y1, x2, y2)).
+    """
+    vehicles = []
+    for v in cap_source.vehicle_positions:
+        x, y = int(v['x']), int(v['y'])
+        size = 40 if v['type'] in [5, 7] else 30
+        vehicles.append((v['type'], (x, y, x + size, y + size)))
     return vehicles
 
 
@@ -458,7 +483,12 @@ def process_frame():
                 continue
 
             # --- Detection ---
-            vehicles = detect_vehicles(frame)
+            # Use real ONNX inference for physical camera,
+            # use position-based count for synthetic (YOLO can't detect drawn rects)
+            if isinstance(cap, SyntheticVideoGenerator):
+                vehicles = detect_vehicles_synthetic(cap)
+            else:
+                vehicles = detect_vehicles(frame)
             vehicle_count = len(vehicles)
 
             # Draw bounding boxes
