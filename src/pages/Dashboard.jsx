@@ -30,6 +30,9 @@ function Dashboard() {
     vehicle_count: 0
   })
 
+  const [videoError, setVideoError] = useState(false)
+  const [videoLoading, setVideoLoading] = useState(true)
+
   const [chartData, setChartData] = useState({
     labels: [],
     datasets: [
@@ -43,6 +46,18 @@ function Dashboard() {
       }
     ]
   })
+
+  const handleVideoLoad = () => {
+    setVideoLoading(false)
+    setVideoError(false)
+    console.log('Video feed loaded successfully')
+  }
+
+  const handleVideoError = (e) => {
+    setVideoLoading(false)
+    setVideoError(true)
+    console.error('Video feed error:', e)
+  }
 
   useEffect(() => {
     const fetchTrafficStatus = async () => {
@@ -169,10 +184,24 @@ function Dashboard() {
                 <TrafficLight signal={trafficData.traffic_light} />
               </div>
               <div className="video-container">
+                {videoLoading && (
+                  <div className="video-loading">
+                    <p>Loading video feed...</p>
+                  </div>
+                )}
+                {videoError && (
+                  <div className="video-error">
+                    <p>❌ Video feed error. Check console for details.</p>
+                    <button onClick={() => window.location.reload()}>Reload Page</button>
+                  </div>
+                )}
                 <img 
                   src="/video_feed" 
                   alt="Live Traffic Feed" 
                   className="video-feed"
+                  onLoad={handleVideoLoad}
+                  onError={handleVideoError}
+                  style={{ display: videoError ? 'none' : 'block' }}
                 />
               </div>
             </div>

@@ -72,6 +72,39 @@
   display: block;
 }
 
+.video-loading,
+.video-error {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: white;
+  font-size: 1.2rem;
+  z-index: 10;
+}
+
+.video-loading p,
+.video-error p {
+  margin-bottom: 1rem;
+}
+
+.video-error button {
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.video-error button:hover {
+  background: #5568d3;
+  transform: scale(1.05);
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;
