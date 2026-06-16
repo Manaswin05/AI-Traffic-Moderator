@@ -77,8 +77,20 @@ git push -u origin main
 | **Branch** | `main` (or `master`) |
 | **Root Directory** | (leave empty) |
 | **Environment** | `Python 3` |
-| **Build Command** | `pip install -r requirements.txt` |
+| **Build Command** | `chmod +x build.sh && ./build.sh` |
 | **Start Command** | `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120` |
+
+**Important:** The build command runs `build.sh` which:
+1. Installs Node.js dependencies (`npm install`)
+2. Builds React frontend (`npm run build` → creates `dist/` folder)
+3. Installs Python dependencies (`pip install -r requirements.txt`)
+
+**Alternative (Manual Commands):**
+
+If you prefer not to use the build script, you can use:
+```
+npm install && npm run build && pip install -r requirements.txt
+```
 
 ---
 
@@ -93,6 +105,22 @@ git push -u origin main
 
 ---
 
+### Step 5.5: Environment Variables (Optional but Recommended)
+
+Before the first deploy, you may want to set these environment variables:
+
+**Go to: Environment tab → Add Environment Variable**
+
+| Key | Value | Purpose |
+|-----|-------|---------|
+| `NODE_VERSION` | `18.17.0` | Ensures correct Node.js version for React build |
+| `PYTHON_VERSION` | `3.11.0` | Python version (auto-detected from runtime.txt) |
+| `VIDEO_SOURCE` | `demo_traffic.mp4` | Optional: path to demo video |
+
+**Note:** Render automatically detects Python from `runtime.txt` and Node.js from `package.json`, but setting `NODE_VERSION` explicitly ensures consistency.
+
+---
+
 ### Step 6: Wait for Deployment
 
 Monitor the deployment logs:
@@ -100,22 +128,38 @@ Monitor the deployment logs:
 ```
 ==> Cloning from https://github.com/yourusername/AI-Traffic-Moderator...
 ==> Downloading cache...
-==> Running build command 'pip install -r requirements.txt'...
-    Installing dependencies...
+==> Running build command 'chmod +x build.sh && ./build.sh'...
+
+    ==> Building React frontend...
+    Installing Node.js dependencies...
+    ✓ Dependencies installed
+    
+    Building production bundle...
+    ✓ React build complete (dist/ folder created)
+    
+    ==> Installing Python dependencies...
+    Installing from requirements.txt...
     ✓ Flask
     ✓ OpenCV (headless)
     ✓ Ultralytics (YOLO)
     ✓ scikit-learn
     ✓ Gunicorn
+    
 ==> Build successful!
-==> Starting service...
+
+==> Starting service with Gunicorn...
     Downloading YOLOv8n model...
+    ✓ Model downloaded (6 MB)
     ✓ K-means trained | Centers: [3.2, 8.9, 18.1]
     ✓ Model saved successfully
+    
 ==> Service is live!
 ```
 
-**Expected build time:** 3-5 minutes
+**Expected build time:** 5-7 minutes
+- Node.js build: ~1-2 minutes
+- Python dependencies: ~3-4 minutes
+- YOLO download + startup: ~30 seconds
 
 ---
 
