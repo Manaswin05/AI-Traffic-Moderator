@@ -538,6 +538,28 @@ def video_feed():
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
+@app.route('/test_video')
+def test_video():
+    """Test endpoint to verify video source is working"""
+    try:
+        if cap is None:
+            return jsonify({"status": "error", "message": "No video source initialized"})
+        
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            return jsonify({"status": "error", "message": "Failed to read frame"})
+        
+        return jsonify({
+            "status": "success",
+            "message": "Video source working",
+            "frame_shape": frame.shape,
+            "is_synthetic": isinstance(cap, SyntheticVideoGenerator),
+            "vehicle_positions": len(cap.vehicle_positions) if isinstance(cap, SyntheticVideoGenerator) else None
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
 @app.route('/traffic_status')
 def traffic_status():
     stats = kmeans_system.get_stats()
