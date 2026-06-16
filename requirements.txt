@@ -1,4 +1,5 @@
 flask==3.0.0
+werkzeug==3.0.1
 flask-cors==4.0.0
 opencv-python-headless==4.8.1.78
 ultralytics==8.0.196
