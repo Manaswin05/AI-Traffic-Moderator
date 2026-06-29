@@ -1,15 +1,8 @@
 import React from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import './Header.css'
 
-function Header({ isAuthenticated, setIsAuthenticated }) {
-  const navigate = useNavigate()
-
-  const handleLogout = () => {
-    setIsAuthenticated(false)
-    navigate('/')
-  }
-
+function Header() {
   return (
     <header className="header">
       <div className="header-content">
@@ -18,13 +11,10 @@ function Header({ isAuthenticated, setIsAuthenticated }) {
           <span className="logo-text">Smart Traffic AI</span>
         </Link>
         
-        {isAuthenticated && (
-          <nav className="nav">
-            <Link to="/dashboard" className="nav-link">Dashboard</Link>
-            <Link to="/map" className="nav-link">Map</Link>
-            <button onClick={handleLogout} className="btn btn-logout">Logout</button>
-          </nav>
-        )}
+        <nav className="nav">
+          <Link to="/dashboard" className="nav-link">Dashboard</Link>
+          <Link to="/map" className="nav-link">Map</Link>
+        </nav>
       </div>
     </header>
   )
