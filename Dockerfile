@@ -35,12 +35,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py ./
 COPY models/ ./models/
 
+# Copy demo video if it exists in the repo
+COPY demo_traffic.mp4 ./demo_traffic.mp4
+
 # Copy built React frontend from stage 1
 COPY --from=frontend-builder /app/dist ./dist
 
 # Hugging Face Spaces requires port 7860
-# The gunicorn start command reads $PORT; we set it here.
 ENV PORT=7860
+
+# Tell the app where to find the demo video
+ENV VIDEO_SOURCE=/app/demo_traffic.mp4
 
 # Expose the port HF Spaces expects
 EXPOSE 7860
