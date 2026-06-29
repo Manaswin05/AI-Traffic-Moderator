@@ -1,3 +1,13 @@
+---
+title: AI Traffic Moderator
+emoji: 🚦
+colorFrom: red
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # AI Traffic Control System 🚦
 
 A modern AI-powered traffic signal control system that uses **YOLOv8** for real-time vehicle detection and dynamically manages traffic signals. Built with **React**, **Flask**, **OpenCV**, and **Ultralytics YOLO**.
