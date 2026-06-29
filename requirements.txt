@@ -1,0 +1,9 @@
+flask==3.0.0
+flask-cors==4.0.0
+opencv-python-headless==4.8.1.78
+ultralytics==8.0.196
+gunicorn==21.2.0
+numpy==1.26.2
+torch==2.1.1
+torchvision==0.16.1
+scikit-learn==1.3.2
