@@ -41,6 +41,9 @@ COPY demo_traffic.mp4 ./demo_traffic.mp4
 # Copy built React frontend from stage 1
 COPY --from=frontend-builder /app/dist ./dist
 
+# Copy demo video if present (glob with * makes it optional - no error if missing)
+COPY demo_traffic.mp4* /app/
+
 # Hugging Face Spaces requires port 7860
 ENV PORT=7860
 
