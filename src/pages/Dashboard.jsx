@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import { Line } from 'react-chartjs-2'
 import {
@@ -7,206 +7,212 @@ import {
   LinearScale,
   PointElement,
   LineElement,
-  Title,
   Tooltip,
-  Legend
+  Filler,
 } from 'chart.js'
-import TrafficLight from '../components/TrafficLight'
 import './Dashboard.css'
 
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend
-)
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler)
+
+const INITIAL_LOGS = [
+  { time: '--:--:--', msg: 'Awaiting first data cycle…', type: 'primary' },
+]
 
 function Dashboard() {
-  const [trafficData, setTrafficData] = useState({
-    traffic_light: 'red',
-    vehicle_count: 0
-  })
-
+  const [traffic, setTraffic] = useState({ traffic_light: 'red', vehicle_count: 0 })
+  const [logs, setLogs] = useState(INITIAL_LOGS)
   const [chartData, setChartData] = useState({
     labels: [],
-    datasets: [
-      {
-        label: 'Vehicle Count',
-        data: [],
-        borderColor: 'rgb(102, 126, 234)',
-        backgroundColor: 'rgba(102, 126, 234, 0.1)',
-        tension: 0.4,
-        fill: true
-      }
-    ]
+    datasets: [{
+      data: [],
+      borderColor: 'rgba(255,255,255,0.7)',
+      backgroundColor: 'rgba(255,255,255,0.04)',
+      tension: 0.4,
+      fill: true,
+      pointRadius: 0,
+      borderWidth: 1.5,
+    }],
   })
+  const prevSignal = useRef(traffic.traffic_light)
 
   useEffect(() => {
-    const fetchTrafficStatus = async () => {
+    const poll = async () => {
       try {
-        const response = await axios.get('/traffic_status')
-        setTrafficData(response.data)
-        
-        // Update chart data
-        const currentTime = new Date().toLocaleTimeString()
-        setChartData(prevData => {
-          const newLabels = [...prevData.labels, currentTime]
-          const newData = [...prevData.datasets[0].data, response.data.vehicle_count]
-          
-          // Keep only last 20 data points
-          if (newLabels.length > 20) {
-            newLabels.shift()
-            newData.shift()
-          }
-          
-          return {
-            labels: newLabels,
-            datasets: [
-              {
-                ...prevData.datasets[0],
-                data: newData
-              }
-            ]
-          }
-        })
-      } catch (error) {
-        console.error('Error fetching traffic status:', error)
-      }
-    }
+        const { data } = await axios.get('/traffic_status')
+        setTraffic(data)
 
-    fetchTrafficStatus()
-    const interval = setInterval(fetchTrafficStatus, 5000)
-    return () => clearInterval(interval)
+        const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+
+        setLogs(prev => {
+          const next = [...prev]
+          if (next.length === 1 && next[0].msg.includes('Awaiting')) next.pop()
+
+          next.unshift({ time: t, msg: `Vehicle stream registered (${data.vehicle_count})`, type: '' })
+
+          if (data.traffic_light !== prevSignal.current) {
+            next.unshift({ time: t, msg: `Signal cycle changed → ${data.traffic_light.toUpperCase()}`, type: 'primary' })
+            prevSignal.current = data.traffic_light
+          }
+
+          if (data.vehicle_count >= 15) {
+            next.unshift({ time: t, msg: 'Density threshold exceeded (High)', type: 'primary' })
+          }
+
+          return next.slice(0, 30)
+        })
+
+        setChartData(prev => {
+          const labels = [...prev.labels, t]
+          const vals = [...prev.datasets[0].data, data.vehicle_count]
+          if (labels.length > 24) { labels.shift(); vals.shift() }
+          return { ...prev, labels, datasets: [{ ...prev.datasets[0], data: vals }] }
+        })
+      } catch (_) {}
+    }
+    poll()
+    const id = setInterval(poll, 5000)
+    return () => clearInterval(id)
   }, [])
 
-  const chartOptions = {
+  const chartOpts = {
     responsive: true,
     maintainAspectRatio: false,
+    animation: { duration: 400 },
     plugins: {
-      legend: {
-        position: 'top',
-        labels: {
-          font: {
-            size: 12,
-            weight: '600'
-          },
-          padding: 15,
-          usePointStyle: true
-        }
-      },
-      title: {
-        display: false
-      },
+      legend: { display: false },
       tooltip: {
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-        padding: 12,
-        titleFont: {
-          size: 14,
-          weight: 'bold'
-        },
-        bodyFont: {
-          size: 13
-        },
-        cornerRadius: 8
-      }
+        backgroundColor: '#1c1b1b',
+        borderColor: '#262626',
+        borderWidth: 1,
+        padding: 8,
+        titleColor: '#8e9192',
+        bodyColor: '#ffffff',
+        titleFont: { size: 10, family: 'JetBrains Mono' },
+        bodyFont: { size: 12, family: 'JetBrains Mono', weight: '700' },
+        cornerRadius: 4,
+        displayColors: false,
+      },
     },
     scales: {
       y: {
         beginAtZero: true,
-        title: {
-          display: true,
-          text: 'Number of Vehicles',
-          font: {
-            size: 13,
-            weight: '600'
-          }
-        },
-        grid: {
-          color: 'rgba(0, 0, 0, 0.05)'
-        },
-        ticks: {
-          font: {
-            size: 11
-          }
-        }
+        grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+        border: { display: false },
+        ticks: { color: '#8e9192', font: { size: 10, family: 'JetBrains Mono' }, padding: 4 },
       },
       x: {
-        title: {
-          display: true,
-          text: 'Time',
-          font: {
-            size: 13,
-            weight: '600'
-          }
-        },
-        grid: {
-          display: false
-        },
-        ticks: {
-          font: {
-            size: 10
-          },
-          maxRotation: 45,
-          minRotation: 45
-        }
-      }
-    }
+        grid: { display: false },
+        border: { display: false },
+        ticks: { color: '#8e9192', font: { size: 9, family: 'JetBrains Mono' }, maxTicksLimit: 4, maxRotation: 0 },
+      },
+    },
   }
 
+  const signalLabel = { red: 'Stop', yellow: 'Caution', green: 'Clear' }[traffic.traffic_light] || 'Stop'
+  const density = traffic.vehicle_count < 5 ? 'Low' : traffic.vehicle_count < 15 ? 'Moderate' : 'High'
+  const densityPct = Math.min(100, Math.round((traffic.vehicle_count / 25) * 100))
+  const signalColorClass = `text-${traffic.traffic_light === 'red' ? 'red' : traffic.traffic_light === 'yellow' ? 'yellow' : 'green'}`
+
   return (
-    <div className="dashboard">
-      <div className="container">
-        <h1 className="page-title">Live Traffic Dashboard</h1>
-        
-        <div className="dashboard-grid">
-          <div className="main-content">
-            <div className="card video-card">
-              <h2>Live Camera Feed</h2>
-              <div className="signal-above-video">
-                <TrafficLight signal={trafficData.traffic_light} />
+    <>
+      {/* Header */}
+      <div className="dash-header">
+        <div>
+          <h2 className="dash-title">Traffic Dashboard</h2>
+          <p className="dash-subtitle">Real-time AI-powered monitoring · Kothrud, Pune</p>
+        </div>
+      </div>
+
+      {/* KPI cards */}
+      <div className="kpi-grid">
+        <div className="data-card kpi-card">
+          <span className="kpi-label">Vehicle Count</span>
+          <span className="kpi-value">{traffic.vehicle_count.toLocaleString()}</span>
+          <span className="kpi-meta">Detected this cycle</span>
+        </div>
+
+        <div className="data-card kpi-card">
+          <span className="kpi-label">Signal Status</span>
+          <div className="kpi-signal-row">
+            <span className="kpi-value-sm">{signalLabel}</span>
+            <div className="kpi-signal-lights">
+              <div className={`kpi-light${traffic.traffic_light === 'red' ? ' on-red' : ''}`} />
+              <div className={`kpi-light${traffic.traffic_light === 'yellow' ? ' on-yellow' : ''}`} />
+              <div className={`kpi-light${traffic.traffic_light === 'green' ? ' on-green' : ''}`} />
+            </div>
+          </div>
+          <span className={`kpi-meta ${signalColorClass}`}>{traffic.traffic_light.toUpperCase()}</span>
+        </div>
+
+        <div className="data-card kpi-card">
+          <span className="kpi-label">Traffic Density</span>
+          <span className="kpi-value-sm">{density}</span>
+          <div className="density-bar-track">
+            <div className="density-bar-fill" style={{ width: `${densityPct}%` }} />
+          </div>
+          <span className="kpi-meta">AI classification</span>
+        </div>
+      </div>
+
+      {/* Main grid */}
+      <div className="dash-main">
+
+        {/* Left column — Camera + Chart */}
+        <div className="dash-left">
+          <div className="data-card cam-panel">
+            <div className="cam-header">
+              <div className="cam-header-left">
+                <span className="material-symbols-outlined">videocam</span>
+                <span className="cam-header-label">Live Camera Feed</span>
               </div>
-              <div className="video-container">
-                <img 
-                  src="/video_feed" 
-                  alt="Live Traffic Feed" 
-                  className="video-feed"
-                />
+              <span className="cam-badge">
+                <span className="pulse-dot" />
+                CAM-01
+              </span>
+            </div>
+            <div className="cam-feed">
+              <img src="/video_feed" alt="Live Traffic Feed" />
+              <div className="cam-feed-overlay">
+                <span className="cam-chip">HD 1080p</span>
+                <span className="cam-chip">30 FPS</span>
               </div>
             </div>
           </div>
 
-          <div className="sidebar">
-            <div className="card stats-card">
-              <h3>Traffic Statistics</h3>
-              <div className="stat-item">
-                <span className="stat-icon">🚗</span>
-                <div className="stat-info">
-                  <span className="stat-label">Vehicle Count</span>
-                  <span className="stat-value">{trafficData.vehicle_count}</span>
-                </div>
-              </div>
-              <div className="stat-item">
-                <span className="stat-icon">⏱️</span>
-                <div className="stat-info">
-                  <span className="stat-label">Status</span>
-                  <span className="stat-value">Active</span>
-                </div>
-              </div>
+          <div className="data-card chart-panel">
+            <div className="chart-panel-header">
+              <span className="chart-panel-label">Flow Patterns (Live)</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--t-variant)' }}>show_chart</span>
             </div>
+            <div className="chart-wrap">
+              <Line data={chartData} options={chartOpts} />
+            </div>
+          </div>
+        </div>
 
-            <div className="card chart-card">
-              <h3>Vehicle Count Over Time</h3>
-              <div className="chart-container">
-                <Line data={chartData} options={chartOptions} />
-              </div>
+        {/* Right column — System Logs only (full height) */}
+        <div className="dash-right">
+          <div className="data-card logs-panel">
+            <div className="logs-panel-header">
+              <span className="panel-header-text">System Logs</span>
+              <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--t-variant)' }}>
+                Last {logs.length} entries
+              </span>
+            </div>
+            <div className="logs-list">
+              {logs.map((entry, i) => (
+                <div key={i} className={`log-entry${i > 0 ? ' dim' : ''}`}>
+                  <span className="log-time">{entry.time}</span>
+                  <span className={`log-msg${entry.type === 'error' ? ' error' : entry.type === 'primary' ? ' primary' : ''}`}>
+                    {entry.msg}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   )
 }
 

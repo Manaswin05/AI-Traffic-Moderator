@@ -1,34 +1,29 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import Header from './components/Header'
-import Login from './pages/Login'
+import Sidebar from './components/Sidebar'
+import Topbar from './components/Topbar'
 import Dashboard from './pages/Dashboard'
+import Analytics from './pages/Analytics'
 import MapView from './pages/MapView'
 import './App.css'
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
-
   return (
     <Router>
-      <div className="app">
-        <Header isAuthenticated={isAuthenticated} setIsAuthenticated={setIsAuthenticated} />
-        <Routes>
-          <Route 
-            path="/" 
-            element={
-              isAuthenticated ? <Navigate to="/dashboard" /> : <Login setIsAuthenticated={setIsAuthenticated} />
-            } 
-          />
-          <Route 
-            path="/dashboard" 
-            element={isAuthenticated ? <Dashboard /> : <Navigate to="/" />} 
-          />
-          <Route 
-            path="/map" 
-            element={isAuthenticated ? <MapView /> : <Navigate to="/" />} 
-          />
-        </Routes>
+      <div className="app-shell">
+        <Sidebar />
+        <div className="app-main">
+          <Topbar />
+          <main className="app-body">
+            <Routes>
+              <Route path="/" element={<Navigate to="/dashboard" />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/analytics" element={<Analytics />} />
+              <Route path="/map" element={<MapView />} />
+              <Route path="*" element={<Navigate to="/dashboard" />} />
+            </Routes>
+          </main>
+        </div>
       </div>
     </Router>
   )

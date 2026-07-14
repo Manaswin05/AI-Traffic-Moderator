@@ -1,0 +1,129 @@
+/* ══════════════════════════════════════════════════════
+   TopAppBar — Sticky header inside main area
+   ══════════════════════════════════════════════════════ */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  height: var(--topbar-h);
+  min-height: var(--topbar-h);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  z-index: 40;
+}
+
+/* Left — Brand label + LIVE badge */
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.topbar-brand {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.1em;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--t-primary);
+}
+
+.topbar-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+  color: var(--t-surface);
+  background: #2E2E2E;
+  padding: 4px 10px;
+  border-radius: var(--r);
+}
+
+.pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--t-primary);
+  animation: pulse-dot 2s infinite;
+}
+
+/* Center — Nav links */
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  height: 100%;
+}
+
+.topbar-link {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+  color: var(--t-variant);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding-top: 2px;
+  border-bottom: 2px solid transparent;
+  transition: color 0.12s;
+}
+
+.topbar-link:hover {
+  color: var(--t-primary);
+}
+
+.topbar-link.active {
+  color: var(--t-primary);
+  font-weight: 700;
+  border-bottom-color: var(--t-primary);
+}
+
+/* Right — Status + icons */
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.topbar-status {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+  color: var(--t-variant);
+  border: 1px solid var(--border-2);
+  background: #201f1f;
+  padding: 5px 12px;
+  border-radius: var(--r);
+}
+
+.topbar-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--t-variant);
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.12s, color 0.12s;
+  padding: 4px;
+}
+
+.topbar-icon-btn:hover {
+  opacity: 1;
+  color: var(--t-primary);
+}
+
+.topbar-icon-btn .material-symbols-outlined {
+  font-size: 22px;
+}
