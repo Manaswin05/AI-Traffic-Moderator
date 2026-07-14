@@ -36,25 +36,34 @@ def init_camera():
         if cap.isOpened():
             print(f"SUCCESS: Using video file: {video_path}")
             return cap, True  # (capture, is_video_file)
+        else:
+            print(f"WARNING: Found file {video_path} but could not open it (might be a Git LFS pointer).")
 
-    # 2. Try physical webcam (works locally)
-    for index in [0, 1, 2]:
-        cam = cv2.VideoCapture(index)
-        if cam.isOpened():
-            cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            cam.set(cv2.CAP_PROP_FPS, 30)
+    # 2. Try physical webcam only if NOT running in a cloud container (Hugging Face/Render)
+    is_cloud = os.environ.get("SPACE_ID") or os.environ.get("RENDER") or os.environ.get("PORT") == "7860"
+    if not is_cloud:
+        for index in [0, 1, 2]:
+            try:
+                cam = cv2.VideoCapture(index)
+                if cam.isOpened():
+                    cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    cam.set(cv2.CAP_PROP_FPS, 30)
 
-            for _ in range(5):
-                cam.read()
+                    for _ in range(5):
+                        cam.read()
 
-            ret, frame = cam.read()
-            if ret and frame is not None and frame.size > 0:
-                print(f"SUCCESS: Camera {index} opened. Shape: {frame.shape}")
-                return cam, False  # (capture, is_video_file)
-            else:
-                cam.release()
+                    ret, frame = cam.read()
+                    if ret and frame is not None and frame.size > 0:
+                        print(f"SUCCESS: Camera {index} opened. Shape: {frame.shape}")
+                        return cam, False  # (capture, is_video_file)
+                    else:
+                        cam.release()
+            except Exception:
+                pass
+    else:
+        print("INFO: Headless cloud environment detected. Skipping webcam detection loop.")
 
     print("WARNING: No camera or video file found. Will stream placeholder frames.")
     return None, False
