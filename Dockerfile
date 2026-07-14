@@ -38,10 +38,14 @@ COPY models/ ./models/
 # Copy built React frontend from stage 1
 COPY --from=frontend-builder /app/dist ./dist
 
+# Copy demo video if present (glob with * makes it optional - no error if missing)
+COPY demo_traffic.mp4* /app/
+
 # Hugging Face Spaces requires port 7860
-# The gunicorn start command reads $PORT; we set it here.
 ENV PORT=7860
 
+# Tell the app where to find the demo video
+ENV VIDEO_SOURCE=/app/demo_traffic.mp4
 # Expose the port HF Spaces expects
 EXPOSE 7860
 
