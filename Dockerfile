@@ -31,6 +31,7 @@ ENV PORT=7860
 
 # Tell the app where to find the demo video
 ENV VIDEO_SOURCE=/app/demo_traffic.mp4
+
 # Expose the port HF Spaces expects
 EXPOSE 7860
 
