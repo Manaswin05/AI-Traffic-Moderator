@@ -31,7 +31,7 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # Build
-dist/
+# dist/  # Allow dist for deployment
 build/
 
 # IDE

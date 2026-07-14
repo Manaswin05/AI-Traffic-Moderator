@@ -1,19 +1,4 @@
-# ── Stage 1: Build React frontend ──────────────────────────────────────────
-FROM node:18-slim AS frontend-builder
-
-WORKDIR /app
-
-# Copy package files and install deps
-COPY package.json package-lock.json ./
-RUN npm ci
-
-# Copy source and build
-COPY vite.config.js ./
-COPY src/ ./src/
-COPY index.html ./
-RUN npm run build
-
-# ── Stage 2: Python / Flask runtime ────────────────────────────────────────
+# ── Python / Flask runtime ────────────────────────────────────────
 FROM python:3.11-slim
 
 # Install system libs required by OpenCV
@@ -35,8 +20,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py ./
 COPY models/ ./models/
 
-# Copy built React frontend from stage 1
-COPY --from=frontend-builder /app/dist ./dist
+# Copy pre-built React frontend (already built locally)
+COPY dist/ ./dist/
 
 # Copy demo video if present (glob with * makes it optional - no error if missing)
 COPY demo_traffic.mp4* /app/
