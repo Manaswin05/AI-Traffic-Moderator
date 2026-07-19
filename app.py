@@ -1,4 +1,4 @@
-from flask import Flask, render_template, Response, jsonify, send_from_directory
+from flask import Flask, render_template, Response, jsonify, send_from_directory, request
 from flask_cors import CORS
 import cv2
 import time
@@ -6,8 +6,11 @@ import torch
 import numpy as np
 import os
 import pickle
+import threading
 from sklearn.cluster import KMeans
 from collections import deque
+
+video_lock = threading.Lock()
 
 # Monkey patch torch.load to use weights_only=False
 original_load = torch.load
@@ -24,6 +27,12 @@ app = Flask(__name__, static_folder=STATIC_FOLDER, static_url_path='')
 CORS(app)
 
 model = YOLO("models/yolov8n.pt")
+
+# Warm up the YOLO model to prevent first-frame lag when frontend connects
+print("Warming up YOLO model...")
+dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+_ = model(dummy_frame, verbose=False)
+print("[+] YOLO model warmed up and ready!")
 
 # ---------------------------
 # Camera / Video Initialization
@@ -163,10 +172,10 @@ class TrafficKMeansOptimized:
             self.last_train_time = time.time()
             self.is_trained = True
             
-            print(f"✓ K-means trained | Centers: {self.cluster_centers.round(1)}")
+            print(f"[+] K-means trained | Centers: {self.cluster_centers.round(1)}")
             
         except Exception as e:
-            print(f"✗ K-means training error: {e}")
+            print(f"[-] K-means training error: {e}")
     
     def classify(self, vehicle_count):
         """Classify traffic density - returns (cluster, density_label)"""
@@ -188,7 +197,7 @@ class TrafficKMeansOptimized:
             return cluster, density
             
         except Exception as e:
-            print(f"✗ Classification error: {e}")
+            print(f"[-] Classification error: {e}")
             return self._fallback_classification(vehicle_count)
     
     def _fallback_classification(self, vehicle_count):
@@ -212,9 +221,9 @@ class TrafficKMeansOptimized:
             }
             with open('models/traffic_kmeans.pkl', 'wb') as f:
                 pickle.dump(model_data, f)
-            print("✓ Model saved successfully")
+            print("[+] Model saved successfully")
         except Exception as e:
-            print(f"✗ Model save error: {e}")
+            print(f"[-] Model save error: {e}")
     
     def load_model(self):
         """Load model from disk if exists"""
@@ -225,11 +234,11 @@ class TrafficKMeansOptimized:
                 self.cluster_centers = model_data['cluster_centers']
                 self.label_mapping = model_data['label_mapping']
                 self.is_trained = True
-                print(f"✓ Model loaded | Centers: {self.cluster_centers.round(1)}")
+                print(f"[+] Model loaded | Centers: {self.cluster_centers.round(1)}")
         except FileNotFoundError:
-            print("○ No saved model found - will train from seed data")
+            print("[i] No saved model found - will train from seed data")
         except Exception as e:
-            print(f"✗ Model load error: {e}")
+            print(f"[-] Model load error: {e}")
     
     def get_stats(self):
         """Get model statistics"""
@@ -296,29 +305,38 @@ def make_placeholder_frame(message="No camera available"):
 def process_frame():
     global cap, is_video_file
 
-    if cap is None:
-        while True:
+    consecutive_failures = 0
+
+    while True:
+        current_cap = cap
+        
+        if current_cap is None:
             frame_bytes = make_placeholder_frame("No camera / video source found")
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
             time.sleep(1)
-        return
+            continue
 
-    consecutive_failures = 0
-
-    while True:
-        ret, frame = cap.read()
+        try:
+            with video_lock:
+                ret, frame = current_cap.read()
+        except Exception:
+            ret, frame = False, None
 
         # Loop video file when it ends
         if not ret and is_video_file:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            ret, frame = cap.read()
+            try:
+                with video_lock:
+                    current_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ret, frame = current_cap.read()
+            except Exception:
+                ret, frame = False, None
 
         if not ret or frame is None or frame.size == 0:
             consecutive_failures += 1
 
             if consecutive_failures >= 10:
-                frame_bytes = make_placeholder_frame("Camera disconnected")
+                frame_bytes = make_placeholder_frame("Camera disconnected or loading...")
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
                 time.sleep(1)
@@ -404,6 +422,48 @@ def process_frame():
 # ---------------------------
 # Flask Routes
 # ---------------------------
+@app.route('/set_video_source', methods=['POST'])
+def set_video_source():
+    global cap, is_video_file
+    data = request.json
+    source_type = data.get('source', 'video')
+
+    with video_lock:
+        if cap is not None:
+            cap.release()
+
+    if source_type == 'webcam':
+        for index in [0, 1, 2]:
+            temp_cap = cv2.VideoCapture(index)
+            if temp_cap.isOpened():
+                temp_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                temp_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                temp_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                temp_cap.set(cv2.CAP_PROP_FPS, 30)
+                with video_lock:
+                    cap = temp_cap
+                    is_video_file = False
+                return jsonify({"status": "success", "message": f"Switched to webcam {index}"})
+
+        with video_lock:
+            cap = None
+            is_video_file = False
+        return jsonify({"status": "error", "message": "No webcam found"}), 404
+
+    else:
+        video_path = os.environ.get("VIDEO_SOURCE", "demo_traffic.mp4")
+        if os.path.exists(video_path):
+            temp_cap = cv2.VideoCapture(video_path)
+            with video_lock:
+                cap = temp_cap
+                is_video_file = True
+            return jsonify({"status": "success", "message": "Switched to demo video"})
+
+        with video_lock:
+            cap = None
+            is_video_file = False
+        return jsonify({"status": "error", "message": "Demo video not found"}), 404
+
 @app.route('/video_feed')
 def video_feed():
     return Response(process_frame(),

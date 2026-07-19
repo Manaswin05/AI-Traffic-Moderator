@@ -8,7 +8,8 @@ export default defineConfig({
     // Proxy API calls to Flask backend during local development
     proxy: {
       '/video_feed': 'http://localhost:5000',
-      '/traffic_status': 'http://localhost:5000'
+      '/traffic_status': 'http://localhost:5000',
+      '/set_video_source': 'http://localhost:5000'
     }
   },
   build: {

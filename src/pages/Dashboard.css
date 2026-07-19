@@ -236,6 +236,52 @@
   height: 5px;
 }
 
+/* Source Toggle Switch */
+.source-toggle {
+  display: flex;
+  align-items: center;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px;
+  cursor: pointer;
+  position: relative;
+  width: 120px;
+  height: 22px;
+}
+
+.toggle-slider {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 56px;
+  height: 16px;
+  background: var(--t-primary);
+  border-radius: 2px;
+  transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+
+.toggle-slider.webcam {
+  transform: translateX(58px);
+}
+
+.toggle-label {
+  flex: 1;
+  text-align: center;
+  font-family: var(--f-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  z-index: 1;
+  color: var(--t-variant);
+  transition: color 0.3s;
+  user-select: none;
+}
+
+.toggle-label.active {
+  color: var(--bg);
+}
+
 /* Feed area */
 .cam-feed {
   flex: 1;

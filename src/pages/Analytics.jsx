@@ -63,8 +63,48 @@ function Analytics() {
   const [kpis, setKpis] = useState({ total: 0, avgPerCycle: 0, peakCount: 0, cycles: 0 })
 
   useEffect(() => {
-    const history = []
-    const typeAccum = { Cars: 0, Bikes: 0, Buses: 0, Trucks: 0, Auto: 0 }
+    // Load persistent history from localStorage
+    const loadHistory = () => {
+      try {
+        const saved = localStorage.getItem('analyticsHistory')
+        return saved ? JSON.parse(saved) : []
+      } catch (e) {
+        console.warn('Failed to load analytics history:', e)
+        return []
+      }
+    }
+
+    // Load persistent type accumulation from localStorage
+    const loadTypeAccum = () => {
+      try {
+        const saved = localStorage.getItem('analyticsTypeAccum')
+        return saved ? JSON.parse(saved) : { Cars: 0, Bikes: 0, Buses: 0, Trucks: 0, Auto: 0 }
+      } catch (e) {
+        console.warn('Failed to load type accumulation:', e)
+        return { Cars: 0, Bikes: 0, Buses: 0, Trucks: 0, Auto: 0 }
+      }
+    }
+
+    // Save history to localStorage
+    const saveHistory = (hist) => {
+      try {
+        localStorage.setItem('analyticsHistory', JSON.stringify(hist))
+      } catch (e) {
+        console.warn('Failed to save analytics history:', e)
+      }
+    }
+
+    // Save type accumulation to localStorage
+    const saveTypeAccum = (typeAcc) => {
+      try {
+        localStorage.setItem('analyticsTypeAccum', JSON.stringify(typeAcc))
+      } catch (e) {
+        console.warn('Failed to save type accumulation:', e)
+      }
+    }
+
+    let history = loadHistory()
+    let typeAccum = loadTypeAccum()
 
     const poll = async () => {
       try {
@@ -73,7 +113,14 @@ function Analytics() {
         const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
         history.push({ time: t, count })
-        if (history.length > 30) history.shift()
+        // Keep last 30 readings for flow chart, but maintain full history for KPIs
+        if (history.length > 30) {
+          // Remove oldest but keep data for KPI calculation
+          const discarded = history.shift()
+        }
+        
+        // Save updated history to localStorage
+        saveHistory(history)
 
         // Simulate vehicle type breakdown from count
         const cars  = Math.round(count * 0.45) + Math.floor(Math.random() * 3)
@@ -87,8 +134,11 @@ function Analytics() {
         typeAccum.Buses += buses
         typeAccum.Trucks += trucks
         typeAccum.Auto  += auto
+        
+        // Save updated type accumulation to localStorage
+        saveTypeAccum(typeAccum)
 
-        // KPIs
+        // KPIs - use only the last 30 readings for display, but track cumulative
         const total = history.reduce((s, h) => s + h.count, 0)
         const peak  = Math.max(...history.map(h => h.count))
         setKpis({
@@ -98,12 +148,13 @@ function Analytics() {
           cycles: history.length,
         })
 
-        // Flow line chart
+        // Flow line chart - show last 30 readings
+        const flowDisplay = history.slice(-30)
         setFlowData({
-          labels: history.map(h => h.time),
+          labels: flowDisplay.map(h => h.time),
           datasets: [{
             label: 'Vehicles',
-            data: history.map(h => h.count),
+            data: flowDisplay.map(h => h.count),
             borderColor: C.white,
             backgroundColor: C.white5,
             tension: 0.4,
@@ -114,7 +165,7 @@ function Analytics() {
         })
 
         // Histogram — last 12 cycle counts
-        const last12 = history.slice(-12)
+        const last12 = flowDisplay.slice(-12)
         setHistData({
           labels: last12.map(h => h.time),
           datasets: [{

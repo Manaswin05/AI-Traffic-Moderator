@@ -21,6 +21,7 @@ const INITIAL_LOGS = [
 function Dashboard() {
   const [traffic, setTraffic] = useState({ traffic_light: 'red', vehicle_count: 0 })
   const [logs, setLogs] = useState(INITIAL_LOGS)
+  const [videoSource, setVideoSource] = useState('video')
   const [chartData, setChartData] = useState({
     labels: [],
     datasets: [{
@@ -73,6 +74,28 @@ function Dashboard() {
     const id = setInterval(poll, 5000)
     return () => clearInterval(id)
   }, [])
+
+  const switchVideoSource = async (source) => {
+    try {
+      await axios.post('/set_video_source', { source })
+      setVideoSource(source)
+      
+      const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      setLogs(prev => {
+        const next = [...prev]
+        next.unshift({ time: t, msg: `Video source switched to ${source}`, type: 'primary' })
+        return next.slice(0, 30)
+      })
+    } catch (err) {
+      console.error("Failed to switch source", err)
+      const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      setLogs(prev => {
+        const next = [...prev]
+        next.unshift({ time: t, msg: `Failed to switch to ${source}`, type: 'error' })
+        return next.slice(0, 30)
+      })
+    }
+  }
 
   const chartOpts = {
     responsive: true,
@@ -165,6 +188,13 @@ function Dashboard() {
                 <span className="material-symbols-outlined">videocam</span>
                 <span className="cam-header-label">Live Camera Feed</span>
               </div>
+              
+              <div className="source-toggle" style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }} onClick={() => switchVideoSource(videoSource === 'video' ? 'webcam' : 'video')}>
+                <div className={`toggle-slider ${videoSource === 'webcam' ? 'webcam' : ''}`} />
+                <span className={`toggle-label ${videoSource === 'video' ? 'active' : ''}`}>VIDEO</span>
+                <span className={`toggle-label ${videoSource === 'webcam' ? 'active' : ''}`}>WEBCAM</span>
+              </div>
+
               <span className="cam-badge">
                 <span className="pulse-dot" />
                 CAM-01
